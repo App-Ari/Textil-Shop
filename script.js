@@ -251,8 +251,28 @@ function sysLabel(sys){ return sys==='madhe' ? 'Magazina e Madhe' : 'Dyqan'; }
 function pendingIncoming(sys){ return state.transfers.filter(t=>t.drejtBy===sys && t.status==='ne_pritje'); }
 
 /* ---------------- SESSION / NAV ---------------- */
-let currentSystem = null; // null | 'madhe' | 'dyqan' — resets every page load, PIN protected
+let currentSystem = null; // null | 'madhe' | 'dyqan' — restaurohet nga sessionStorage nëse ekziston (mbetet i loguar edhe pas refresh, derisa të mbyllet skeda/shfletuesi)
 let currentLoggedUser = null; // përdoruesi që hyri me PIN-in e vet personal (null nëse u përdor PIN-i i sistemit)
+const SESSION_KEY = 'fs-session-v1';
+function saveSession(){
+  try{
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({system: currentSystem, userId: currentLoggedUser ? currentLoggedUser.id : null}));
+  }catch(e){}
+}
+function clearSession(){
+  try{ sessionStorage.removeItem(SESSION_KEY); }catch(e){}
+}
+function restoreSession(){
+  try{
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if(!raw) return;
+    const s = JSON.parse(raw);
+    if(s && (s.system==='madhe' || s.system==='dyqan')){
+      currentSystem = s.system;
+      currentLoggedUser = s.userId ? (state.users.find(u=>u.id===s.userId) || null) : null;
+    }
+  }catch(e){}
+}
 let currentView = null;
 
 const NAV_MADHE = [
@@ -342,7 +362,7 @@ function render(){
     };
   });
   document.getElementById('btn-switch-system').onclick = ()=>{
-    currentSystem = null; currentView = null; currentLoggedUser = null; render();
+    currentSystem = null; currentView = null; currentLoggedUser = null; clearSession(); render();
   };
   renderMain();
 }
@@ -423,11 +443,11 @@ async function refresh(){ await saveState(); render(); }
 function renderSystemChooser(){
   return `
   <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;">
-    <div style="max-width:640px;width:100%;">
-      <div style="text-align:center;margin-bottom:26px;">
-        <div class="brand-mark" style="width:54px;height:54px;font-size:22px;margin:0 auto 12px;">FS</div>
-        <h1 class="disp" style="margin:0 0 4px;font-size:24px;">${state.config.markaEmri||'Fill & Stoff'}</h1>
-        <p class="hint">Zgjidh sistemin ku dëshiron të hysh</p>
+    <div style="max-width:760px;width:100%;">
+      <div style="text-align:center;margin-bottom:34px;">
+        <div class="brand-mark" style="width:68px;height:68px;font-size:26px;margin:0 auto 14px;border-radius:16px;">FS</div>
+        <h1 class="disp" style="margin:0 0 6px;font-size:28px;">${state.config.markaEmri||'Fill & Stoff'}</h1>
+        <p class="hint" style="font-size:14px;">Zgjidh sistemin ku dëshiron të hysh</p>
       </div>
       <div class="sys-grid">
         <button class="sys-card" id="choose-madhe">
@@ -473,6 +493,7 @@ function openSystemPin(sys){
     if(entered === (pin||'') || matchedUser){
       currentSystem = sys; currentView = null;
       currentLoggedUser = matchedUser || null;
+      saveSession();
       closeModal();
       render();
     } else {
@@ -2066,7 +2087,7 @@ function wireBackupImportExport(){
         return;
       }
       state = data;
-      currentSystem = null; currentView = null;
+      currentSystem = null; currentView = null; currentLoggedUser = null; clearSession();
       await refresh();
       alert('Backup-i u importua me sukses.');
     }catch(err){
@@ -2124,7 +2145,7 @@ function wireConfigMadhe(){
     if(!confirm('Je i sigurt? Kjo do të fshijë PËRGJITHMONË të gjitha të dhënat.')) return;
     if(!confirm('Konfirmim final: fshi çdo produkt, stok, shitje, blerje dhe klient?')) return;
     state = defaultState();
-    currentSystem = null; currentView = null;
+    currentSystem = null; currentView = null; currentLoggedUser = null; clearSession();
     await refresh();
   };
 }
@@ -2245,7 +2266,7 @@ function wireConfigDyqan(){
     if(!confirm('Je i sigurt? Kjo do të fshijë PËRGJITHMONË të gjitha të dhënat.')) return;
     if(!confirm('Konfirmim final: fshi çdo produkt, stok, shitje, blerje dhe klient?')) return;
     state = defaultState();
-    currentSystem = null; currentView = null;
+    currentSystem = null; currentView = null; currentLoggedUser = null; clearSession();
     await refresh();
   };
 }
@@ -2461,5 +2482,6 @@ async function pdfPurchase(rec){
 (async function init(){
   document.getElementById('app').innerHTML = `<div style="padding:60px;text-align:center;color:#6b6459;font-family:Inter;">Duke ngarkuar sistemin…</div>`;
   await loadState();
+  restoreSession();
   render();
 })();
