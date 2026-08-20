@@ -257,13 +257,13 @@ input.input-danger{border-color:var(--danger);background:var(--danger-bg);}
 .inv-pos .pos-thanks{text-align:center;margin-top:4px;font-weight:700;color:#C0563B;}
 
 /* ---------- SYSTEM CHOOSER + BADGES ---------- */
-.sys-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
-@media (max-width:520px){.sys-grid{grid-template-columns:1fr;}}
-.sys-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px 18px;cursor:pointer;text-align:center;transition:.15s;font-family:'Inter';}
-.sys-card:hover{border-color:var(--indigo);box-shadow:0 6px 18px rgba(35,50,91,.14);transform:translateY(-2px);}
-.sys-card-icon{width:36px;height:36px;stroke:var(--indigo);fill:none;stroke-width:1.6;margin-bottom:10px;}
-.sys-card-title{font-family:'Manrope';font-weight:800;font-size:15.5px;margin-bottom:4px;color:var(--ink);}
-.sys-card-sub{font-size:11.5px;color:var(--ink-soft);}
+.sys-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+@media (max-width:560px){.sys-grid{grid-template-columns:1fr;}}
+.sys-card{background:var(--card);border:2px solid var(--line);border-radius:18px;padding:44px 26px;cursor:pointer;text-align:center;transition:.18s;font-family:'Inter';box-shadow:0 4px 16px rgba(35,50,91,.06);}
+.sys-card:hover{border-color:var(--indigo);box-shadow:0 12px 30px rgba(35,50,91,.18);transform:translateY(-3px);}
+.sys-card-icon{width:56px;height:56px;stroke:var(--indigo);fill:none;stroke-width:1.5;margin-bottom:16px;}
+.sys-card-title{font-family:'Manrope';font-weight:800;font-size:21px;margin-bottom:8px;color:var(--ink);}
+.sys-card-sub{font-size:13.5px;color:var(--ink-soft);line-height:1.5;}
 .nav-badge{background:var(--terra);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:700;margin-left:3px;vertical-align:2px;display:inline-block;}
 .nav-badge-danger{background:var(--danger);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:700;margin-left:3px;vertical-align:2px;display:inline-block;}
 
