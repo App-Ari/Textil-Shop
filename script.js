@@ -509,14 +509,20 @@ function openModal(html, wide){
     ov = document.createElement('div');
     ov.id='overlay'; ov.className='overlay';
     document.body.appendChild(ov);
-    ov.addEventListener('click',(e)=>{ if(e.target===ov) closeModal(); });
+    // Mbyllet vetëm me butonin "Anulo"/"X" ose me Escape — jo duke klikuar jashtë,
+    // që të mos humbasë aksidentalisht ajo çka është shkruar në formular.
+    document.addEventListener('keydown', escCloseModal);
   }
   ov.innerHTML = `<div class="modal${wide?' modal-wide':''}">${html}</div>`;
   ov.style.display='flex';
 }
+function escCloseModal(e){
+  if(e.key==='Escape') closeModal();
+}
 function closeModal(){
   const ov = document.getElementById('overlay');
   if(ov) ov.remove();
+  document.removeEventListener('keydown', escCloseModal);
 }
 
 /* =====================================================================
