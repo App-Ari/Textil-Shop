@@ -114,11 +114,20 @@ tbody tr:hover{background:#faf8f2;}
 /* ---- Stoku: rreshta të dukshëm për alarm dhe për material të transferuar ---- */
 tr.stok-row-alert{background:var(--danger-bg);box-shadow:inset 3px 0 0 var(--danger);}
 tr.stok-row-alert:hover{background:#f2d5cf;}
+tr.stok-row-alert td{color:var(--danger);font-weight:700;}
 tr.stok-row-transfer{background:#fbf3de;box-shadow:inset 3px 0 0 var(--gold);}
 tr.stok-row-transfer:hover{background:#f7ecc9;}
+tr.stok-row-transfer td{color:#8a6a1f;font-weight:700;}
 .qty-alert{color:var(--danger);font-weight:800;}
 .qty-transfer{color:var(--indigo);font-weight:800;}
 .transfer-note{display:inline-block;margin-left:6px;font-size:11px;font-weight:700;color:var(--gold);}
+
+/* ---- Sinjali i kuq lart (badge në menu) — pulson që të bjerë në sy ---- */
+@keyframes pulse-danger{
+  0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(176,58,46,.55);}
+  50%{transform:scale(1.18);box-shadow:0 0 0 5px rgba(176,58,46,0);}
+}
+.nav-badge-danger{animation:pulse-danger 1.3s ease-in-out infinite;}
 .hint{font-size:12px;color:var(--ink-soft);margin-top:4px;}
 
 .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
