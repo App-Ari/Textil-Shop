@@ -369,10 +369,17 @@ function render(){
 function debtorsCount(){
   return state.customers.filter(c=>custBalance(c.id)>0.001).length + anonymousDebtSales().length;
 }
+function lowStockCount(sys){
+  return allVariantRows().filter(({p,v})=>stockOf(sys,v.id) <= (p.minStok||0)).length;
+}
 function navLabel(n){
   if(n.id === `transfer-${currentSystem}`){
     const cnt = pendingIncoming(currentSystem).length;
     if(cnt>0) return `${n.label} <span class="nav-badge">${cnt}</span>`;
+  }
+  if(n.id === `stok-${currentSystem}`){
+    const cnt = lowStockCount(currentSystem);
+    if(cnt>0) return `${n.label} <span class="nav-badge-danger">${cnt}</span>`;
   }
   if(n.id === 'debitore'){
     const cnt = debtorsCount();
@@ -779,9 +786,17 @@ function bindProdForm(existing){
 /* =====================================================================
    STOKU (madhe / dyqan) + ALARME
    ===================================================================== */
+function pendingOutMap(sys){
+  const map = {};
+  state.transfers.filter(t=>t.nga===sys && t.status==='ne_pritje').forEach(t=>{
+    t.items.forEach(it=>{ map[it.productId] = (map[it.productId]||0) + it.sasia; });
+  });
+  return map;
+}
 function viewStok(sys){
   const rows = allVariantRows();
   const low = rows.filter(({p,v})=>stockOf(sys,v.id) <= (p.minStok||0));
+  const pendOut = pendingOutMap(sys);
   return `
     <div class="view-head">
       <div><div class="view-eyebrow">${sys==='madhe'?'Depoja Qendrore':'Pika e Shitjes'}</div><h1 class="view-title">Stoku — ${sysLabel(sys)}</h1></div>
@@ -789,19 +804,27 @@ function viewStok(sys){
     ${low.length? `<div class="card" style="border-color:var(--danger);">
       <p class="card-title">⚠ Alarme Stoku (${low.length})</p>
       <table><thead><tr><th>Produkti</th><th class="num">Gjendja</th><th class="num">Min.</th></tr></thead><tbody>
-      ${low.map(({p,v})=>`<tr><td>${p.kod} — ${v.emer}</td><td class="num">${stockOf(sys,v.id)} ${p.njesia}</td><td class="num">${p.minStok||0}</td></tr>`).join('')}
+      ${low.map(({p,v})=>`<tr class="stok-row-alert"><td>${p.kod} — ${v.emer}</td><td class="num qty-alert">${stockOf(sys,v.id)} ${p.njesia}</td><td class="num">${p.minStok||0}</td></tr>`).join('')}
       </tbody></table>
     </div>` : ''}
     <div class="card">
       <p class="card-title">Gjendja e Plotë</p>
-      <table><thead><tr><th>Kodi</th><th>Produkti / Varioni</th><th>Masa</th><th>Njësia</th><th class="num">Sasia</th><th class="num">Vlera (blerje)</th><th></th></tr></thead><tbody>
-      ${rows.length===0?`<tr><td colspan="7"><div class="empty">S'ka produkte ende.</div></td></tr>`:
+      <table><thead><tr><th>Kodi</th><th>Produkti / Varioni</th><th>Masa</th><th>Njësia</th><th class="num">Sasia</th><th class="num">Në Transferim</th><th class="num">Vlera (blerje)</th><th></th></tr></thead><tbody>
+      ${rows.length===0?`<tr><td colspan="8"><div class="empty">S'ka produkte ende.</div></td></tr>`:
         rows.map(({p,v})=>{
           const q = stockOf(sys,v.id);
           const isLow = q <= (p.minStok||0);
-          return `<tr><td class="mono">${p.kod}</td><td>${p.kategori?p.kategori+' — ':''}${v.emer}</td><td>${v.masa||'—'}</td><td>${p.njesia}</td><td class="num">${q}</td><td class="num">${fmt(q*v.cmimiBlerje)}</td><td>${isLow?'<span class="tag tag-bad">Stok i ulët</span>':''}</td></tr>`;
+          const transferuar = pendOut[v.id] || 0;
+          const rowClass = isLow ? 'stok-row-alert' : (transferuar>0 ? 'stok-row-transfer' : '');
+          const qtyClass = isLow ? 'qty-alert' : (transferuar>0 ? 'qty-transfer' : '');
+          const tagHtml = isLow
+            ? '<span class="tag tag-bad">Stok i ulët</span>'
+            : (transferuar>0 ? '<span class="tag tag-transfer">Në transferim</span>' : '');
+          const transferCell = transferuar>0 ? `<span class="qty-transfer">− ${transferuar} ${p.njesia}</span>` : '<span style="color:var(--ink-soft);">—</span>';
+          return `<tr class="${rowClass}"><td class="mono">${p.kod}</td><td>${p.kategori?p.kategori+' — ':''}${v.emer}</td><td>${v.masa||'—'}</td><td>${p.njesia}</td><td class="num ${qtyClass}">${q}</td><td class="num">${transferCell}</td><td class="num">${fmt(q*v.cmimiBlerje)}</td><td>${tagHtml}</td></tr>`;
         }).join('')}
       </tbody></table>
+      <p class="hint">🔴 Rreshti i kuq = stoku është nën minimum (alarm). 🟡 Rreshti i verdhë = ka material të dërguar në transferim, ende në pritje pranimi — sasia në kolonën "Sasia" tregon çfarë <b>ka mbetur</b> pas atij transferimi.</p>
     </div>
   `;
 }
