@@ -1772,11 +1772,42 @@ function wireBilanc(){}
    XHIRO DITORE (Dyqan)
    ===================================================================== */
 let xhiroDate = today();
+let xhiroRepGroup = 'ditor';
+let xhiroRepFrom = today().slice(0,8)+'01';
+let xhiroRepTo = today();
+function monthLabelSq(ym){
+  const emrat = ['Janar','Shkurt','Mars','Prill','Maj','Qershor','Korrik','Gusht','Shtator','Tetor','Nëntor','Dhjetor'];
+  const [y,m] = ym.split('-');
+  return `${emrat[parseInt(m,10)-1]} ${y}`;
+}
+function buildXhiroReport(from, to, group){
+  const cash = state.cashMovements.filter(m=>m.data>=from && m.data<=to);
+  const sales = state.sales.filter(s=>s.data>=from && s.data<=to);
+  const keyOf = d => group==='mujor' ? d.slice(0,7) : d;
+  const map = {};
+  cash.forEach(m=>{
+    const k = keyOf(m.data);
+    map[k] = map[k] || {hyrje:0, dalje:0, nrShitje:0, vleraShitje:0};
+    if(m.lloji==='hyrje') map[k].hyrje += m.shuma; else map[k].dalje += m.shuma;
+  });
+  sales.forEach(s=>{
+    const k = keyOf(s.data);
+    map[k] = map[k] || {hyrje:0, dalje:0, nrShitje:0, vleraShitje:0};
+    map[k].nrShitje += 1;
+    map[k].vleraShitje += (s.totali||0);
+  });
+  return Object.keys(map).sort().map(k=>({period:k, ...map[k], bilanc: map[k].hyrje - map[k].dalje}));
+}
 function viewXhiro(){
   const dayCash = state.cashMovements.filter(m=>m.data===xhiroDate);
   const hyrje = dayCash.filter(m=>m.lloji==='hyrje').reduce((a,m)=>a+m.shuma,0);
   const dalje = dayCash.filter(m=>m.lloji==='dalje').reduce((a,m)=>a+m.shuma,0);
   const daySales = state.sales.filter(s=>s.data===xhiroDate);
+  const report = buildXhiroReport(xhiroRepFrom, xhiroRepTo, xhiroRepGroup);
+  const repHyrje = report.reduce((a,r)=>a+r.hyrje,0);
+  const repDalje = report.reduce((a,r)=>a+r.dalje,0);
+  const repVlera = report.reduce((a,r)=>a+r.vleraShitje,0);
+  const repNr = report.reduce((a,r)=>a+r.nrShitje,0);
   return `
     <div class="view-head">
       <div><div class="view-eyebrow">Arka</div><h1 class="view-title">Xhiro Ditore</h1></div>
@@ -1799,12 +1830,44 @@ function viewXhiro(){
         dayCash.map(m=>`<tr><td><span class="tag ${m.lloji==='hyrje'?'tag-ok':'tag-bad'}">${m.lloji==='hyrje'?'Hyrje':'Dalje'}</span></td><td>${m.pershkrim}</td><td class="num">${fmt(m.shuma)}</td></tr>`).join('')}
       </tbody></table>
     </div>
+
+    <div class="card">
+      <p class="card-title">Raport Xhiro sipas Periudhës</p>
+      <div class="field-row" style="align-items:flex-end;">
+        <div class="field"><label>Nga data</label><input type="date" id="xrep-from" value="${xhiroRepFrom}"></div>
+        <div class="field"><label>Deri në datën</label><input type="date" id="xrep-to" value="${xhiroRepTo}"></div>
+        <div class="field">
+          <label>Grupimi</label>
+          <select id="xrep-group">
+            <option value="ditor" ${xhiroRepGroup==='ditor'?'selected':''}>Ditore</option>
+            <option value="mujor" ${xhiroRepGroup==='mujor'?'selected':''}>Mujore</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="btn-xrep-gjenero">Gjenero</button>
+      </div>
+      <div class="grid-stats" style="margin-top:14px;">
+        <div class="stat-card s4"><p class="stat-label">Hyrje Gjithsej</p><p class="stat-val">${fmt(repHyrje)}</p></div>
+        <div class="stat-card"><p class="stat-label">Dalje Gjithsej</p><p class="stat-val">${fmt(repDalje)}</p></div>
+        <div class="stat-card s2"><p class="stat-label">Bilanci i Periudhës</p><p class="stat-val">${fmt(repHyrje-repDalje)}</p></div>
+        <div class="stat-card s3"><p class="stat-label">Shitje (${repNr})</p><p class="stat-val">${fmt(repVlera)}</p></div>
+      </div>
+      <table style="margin-top:14px;"><thead><tr><th>${xhiroRepGroup==='mujor'?'Muaji':'Data'}</th><th class="num">Hyrje</th><th class="num">Dalje</th><th class="num">Bilanci</th><th class="num">Nr. Shitjesh</th><th class="num">Vlera Shitjeve</th></tr></thead><tbody>
+      ${report.length===0?`<tr><td colspan="6"><div class="empty">S'ka lëvizje në këtë periudhë.</div></td></tr>`:
+        report.map(r=>`<tr><td>${xhiroRepGroup==='mujor'?monthLabelSq(r.period):r.period}</td><td class="num">${fmt(r.hyrje)}</td><td class="num">${fmt(r.dalje)}</td><td class="num ${r.bilanc<0?'qty-alert':''}">${fmt(r.bilanc)}</td><td class="num">${r.nrShitje}</td><td class="num">${fmt(r.vleraShitje)}</td></tr>`).join('')}
+      </tbody></table>
+    </div>
   `;
 }
 function wireXhiro(){
   document.getElementById('xhiro-date').onchange = (e)=>{ xhiroDate = e.target.value; renderMain(); };
   document.getElementById('btn-cash-in').onclick = ()=> cashMoveForm('hyrje');
   document.getElementById('btn-cash-out').onclick = ()=> cashMoveForm('dalje');
+  document.getElementById('btn-xrep-gjenero').onclick = ()=>{
+    xhiroRepFrom = document.getElementById('xrep-from').value || xhiroRepFrom;
+    xhiroRepTo = document.getElementById('xrep-to').value || xhiroRepTo;
+    xhiroRepGroup = document.getElementById('xrep-group').value;
+    renderMain();
+  };
 }
 function cashMoveForm(lloji){
   openModal(`
