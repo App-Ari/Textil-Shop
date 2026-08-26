@@ -389,9 +389,24 @@ let njoftimeUnread = {madhe:0, dyqan:0};
 let njoftimeUnreadInit = {madhe:false, dyqan:false};
 let njoftimePollTimer = null;
 let njoftimePollSystem = null;
+let njoftimeAudioCtx = null;
+let njoftimeAudioUnlocked = false;
+function unlockNjoftimeAudio(){
+  if(njoftimeAudioUnlocked) return;
+  njoftimeAudioUnlocked = true;
+  try{
+    njoftimeAudioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    if(njoftimeAudioCtx.state === 'suspended') njoftimeAudioCtx.resume();
+  }catch(e){}
+}
+document.addEventListener('click', unlockNjoftimeAudio, {once:true});
+document.addEventListener('keydown', unlockNjoftimeAudio, {once:true});
+document.addEventListener('touchstart', unlockNjoftimeAudio, {once:true});
 function playNjoftimeBeep(){
   try{
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    if(!njoftimeAudioCtx) njoftimeAudioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const ctx = njoftimeAudioCtx;
+    if(ctx.state === 'suspended') ctx.resume();
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = 'sine';
@@ -402,7 +417,6 @@ function playNjoftimeBeep(){
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.24);
     o.connect(g); g.connect(ctx.destination);
     o.start(); o.stop(ctx.currentTime+0.26);
-    o.onended = ()=>ctx.close();
   }catch(e){}
 }
 async function refreshNjoftimeBadge(){
