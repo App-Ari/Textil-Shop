@@ -332,6 +332,13 @@ input.input-danger{border-color:var(--danger);background:var(--danger-bg);}
 .sys-pill{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:3px 9px;border-radius:20px;margin-left:8px;}
 
 /* --- Zgjedhja e Variantit të Produktit (si te Njësia) --- */
-.variant-select{font-family:'Inter';font-size:13px;padding:6px 8px;border:1px solid var(--line);
-  border-radius:7px;background:#fff;cursor:pointer;font-weight:600;min-width:130px;}
+.variant-select{font-family:'Inter';font-size:13px;padding:5px 6px;border:1px solid var(--line);
+  border-radius:7px;background:#fff;cursor:pointer;font-weight:600;min-width:100px;max-width:160px;
+  height:30px;vertical-align:middle;}
 .variant-select:focus{outline:2px solid var(--indigo-soft);outline-offset:0;border-color:var(--indigo-soft);}
+
+/* --- Tabela e Produkteve — struktur\u00eb e ngjeshur, pa hap\u00ebsira t\u00eb tepruara --- */
+.tbl-produkte td,.tbl-produkte th{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;}
+.tbl-produkte td{vertical-align:middle;padding:6px 10px;}
+.prod-actions{display:flex;flex-wrap:nowrap;gap:6px;align-items:center;}
+.tbl-produkte .icon-btn{width:28px;height:28px;flex:0 0 auto;}
