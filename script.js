@@ -898,6 +898,30 @@ function viewStok(sys){
   const rows = allVariantRows();
   const low = rows.filter(({p,v})=>stockOf(sys,v.id) <= (p.minStok||0));
   const pendOut = pendingOutMap(sys);
+  const bodyHtml = state.products.length===0
+    ? `<tr><td colspan="8"><div class="empty">S'ka produkte ende.</div></td></tr>`
+    : state.products.map(p=>{
+        const variants = p.variants||[];
+        const variantRowsHtml = variants.map(v=>{
+          const q = stockOf(sys,v.id);
+          const isLow = q <= (p.minStok||0);
+          const transferuar = pendOut[v.id] || 0;
+          const rowClass = isLow ? 'stok-row-alert' : (transferuar>0 ? 'stok-row-transfer' : '');
+          const qtyClass = isLow ? 'qty-alert' : (transferuar>0 ? 'qty-transfer' : '');
+          const tagHtml = isLow
+            ? '<span class="tag tag-bad">Stok i ulët</span>'
+            : (transferuar>0 ? '<span class="tag tag-transfer">Në transferim</span>' : '');
+          const transferCell = transferuar>0 ? `<span class="qty-transfer">− ${transferuar} ${p.njesia}</span>` : '<span style="color:var(--ink-soft);">—</span>';
+          return `<tr class="${rowClass}"><td class="mono">${p.kod}</td><td>${p.kategori?p.kategori+' — ':''}${v.emer}</td><td>${v.masa||'—'}</td><td>${p.njesia}</td><td class="num ${qtyClass}">${q}</td><td class="num">${transferCell}</td><td class="num">${fmt(q*v.cmimiBlerje)}</td><td>${tagHtml}</td></tr>`;
+        }).join('');
+        let totalRowHtml = '';
+        if(variants.length>1){
+          const totalQ = variants.reduce((a,v)=>a+stockOf(sys,v.id),0);
+          const totalVal = variants.reduce((a,v)=>a+stockOf(sys,v.id)*(v.cmimiBlerje||0),0);
+          totalRowHtml = `<tr class="stok-row-total"><td class="mono">${p.kod}</td><td colspan="3">Totali — ${p.kod}${p.kategori?' ('+p.kategori+')':''}</td><td class="num">${totalQ} ${p.njesia}</td><td></td><td class="num">${fmt(totalVal)}</td><td></td></tr>`;
+        }
+        return variantRowsHtml + totalRowHtml;
+      }).join('');
   return `
     <div class="view-head">
       <div><div class="view-eyebrow">${sys==='madhe'?'Depoja Qendrore':'Pika e Shitjes'}</div><h1 class="view-title">Stoku — ${sysLabel(sys)}</h1></div>
@@ -911,21 +935,9 @@ function viewStok(sys){
     <div class="card">
       <p class="card-title">Gjendja e Plotë</p>
       <table><thead><tr><th>Kodi</th><th>Produkti / Varioni</th><th>Masa</th><th>Njësia</th><th class="num">Sasia</th><th class="num">Në Transferim</th><th class="num">Vlera (blerje)</th><th></th></tr></thead><tbody>
-      ${rows.length===0?`<tr><td colspan="8"><div class="empty">S'ka produkte ende.</div></td></tr>`:
-        rows.map(({p,v})=>{
-          const q = stockOf(sys,v.id);
-          const isLow = q <= (p.minStok||0);
-          const transferuar = pendOut[v.id] || 0;
-          const rowClass = isLow ? 'stok-row-alert' : (transferuar>0 ? 'stok-row-transfer' : '');
-          const qtyClass = isLow ? 'qty-alert' : (transferuar>0 ? 'qty-transfer' : '');
-          const tagHtml = isLow
-            ? '<span class="tag tag-bad">Stok i ulët</span>'
-            : (transferuar>0 ? '<span class="tag tag-transfer">Në transferim</span>' : '');
-          const transferCell = transferuar>0 ? `<span class="qty-transfer">− ${transferuar} ${p.njesia}</span>` : '<span style="color:var(--ink-soft);">—</span>';
-          return `<tr class="${rowClass}"><td class="mono">${p.kod}</td><td>${p.kategori?p.kategori+' — ':''}${v.emer}</td><td>${v.masa||'—'}</td><td>${p.njesia}</td><td class="num ${qtyClass}">${q}</td><td class="num">${transferCell}</td><td class="num">${fmt(q*v.cmimiBlerje)}</td><td>${tagHtml}</td></tr>`;
-        }).join('')}
+      ${bodyHtml}
       </tbody></table>
-      <p class="hint">🔴 Rreshti i kuq = stoku është nën minimum (alarm). 🟡 Rreshti i verdhë = ka material të dërguar në transferim, ende në pritje pranimi — sasia në kolonën "Sasia" tregon çfarë <b>ka mbetur</b> pas atij transferimi.</p>
+      <p class="hint">🔴 Rreshti i kuq = stoku është nën minimum (alarm). 🟡 Rreshti i verdhë = ka material të dërguar në transferim, ende në pritje pranimi — sasia në kolonën "Sasia" tregon çfarë <b>ka mbetur</b> pas atij transferimi. ⚫ Rreshti "Totali" mbledh bashkë të gjitha varionet e të njëjtit kod.</p>
     </div>
   `;
 }
@@ -1495,11 +1507,12 @@ function saleForm(existing){
     <form id="sale-form">
       <div class="field-row">
         <div class="field"><label>Data</label><input type="date" name="data" value="${existing?existing.data:today()}" required></div>
-        <div class="field"><label>Klienti</label>
-          <input list="customer-suggest" name="klientEmri" value="${klientEmriVal}" placeholder="Shkruaj emrin (ose lëre bosh për klient rasti)..." autocomplete="off">
+        <div class="field"><label>Klienti <span id="klienti-required-mark" style="display:${existing&&(existing.menyraPageses==='kredi'||existing.menyraPageses==='pjesshem')?'inline':'none'};color:var(--danger);">*</span></label>
+          <input list="customer-suggest" id="sale-klient-input" name="klientEmri" value="${klientEmriVal}" placeholder="Shkruaj emrin (ose lëre bosh për klient rasti)..." autocomplete="off">
           <datalist id="customer-suggest">${state.customers.map(c=>`<option value="${c.emri}"></option>`).join('')}</datalist>
         </div>
       </div>
+      <p class="hint" id="klienti-required-hint" style="display:${existing&&(existing.menyraPageses==='kredi'||existing.menyraPageses==='pjesshem')?'block':'none'};color:var(--danger);">Për shitje "Debitor" ose "Pjesërisht të paguar", emri i klientit është i detyrueshëm.</p>
       <p class="hint">Emrat e klientëve ruhen automatikisht — sapo shkruan gërmën e parë do të dalin sugjerime.</p>
       <hr class="stitch">
       <label>Artikujt</label>
@@ -1544,7 +1557,16 @@ function openSaleModal(existing){
   wireItemsPicker('sale-items', true, 'shitje', 'dyqan', 'sale-tvsh');
   const pm = document.getElementById('sale-paymethod');
   const wrap = document.getElementById('sale-paguar-wrap');
-  pm.onchange = ()=>{ wrap.style.display = pm.value==='pjesshem' ? 'block':'none'; };
+  const klientMark = document.getElementById('klienti-required-mark');
+  const klientHint = document.getElementById('klienti-required-hint');
+  const toggleKlientRequired = ()=>{
+    const needsClient = pm.value==='pjesshem' || pm.value==='kredi';
+    wrap.style.display = pm.value==='pjesshem' ? 'block':'none';
+    if(klientMark) klientMark.style.display = needsClient ? 'inline':'none';
+    if(klientHint) klientHint.style.display = needsClient ? 'block':'none';
+  };
+  pm.onchange = toggleKlientRequired;
+  toggleKlientRequired();
   document.getElementById('sale-form').onsubmit = async (e)=>{
     e.preventDefault();
     const f = new FormData(e.target);
@@ -1576,8 +1598,9 @@ function openSaleModal(existing){
     if(menyra==='cash') mbetetFillestar = 0;
     else if(menyra==='kredi') mbetetFillestar = totali;
     else { const paguarTani = parseFloat(f.get('paguarTani'))||0; mbetetFillestar = Math.max(0, totali-paguarTani); }
-    if(menyra==='pjesshem' && !klientId){
-      alert('Për shitje pjesërisht të paguar, duhet shkruar emri i klientit.');
+    if((menyra==='pjesshem' || menyra==='kredi') && !klientId){
+      alert('Për shitje "Debitor" ose "Pjesërisht të paguar", duhet shkruar emri i klientit.');
+      document.getElementById('sale-klient-input')?.focus();
       return;
     }
     if(existing){
