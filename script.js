@@ -426,11 +426,32 @@ async function refreshNjoftimeBadge(){
     cnt = await fetchUnreadCount(currentSystem);
   }catch(e){ return; }
   const prev = njoftimeUnread[currentSystem]||0;
-  if(njoftimeUnreadInit[currentSystem] && cnt>prev) playNjoftimeBeep();
+  if(njoftimeUnreadInit[currentSystem] && cnt>prev){
+    playNjoftimeBeep();
+    showNjoftimeToast(otherSystem(currentSystem));
+  }
   njoftimeUnreadInit[currentSystem] = true;
   njoftimeUnread[currentSystem] = cnt;
   const btn = document.querySelector(`[data-nav="njoftime-${currentSystem}"] span`);
   if(btn) btn.innerHTML = navLabel({id:`njoftime-${currentSystem}`, label:'Njoftime'});
+}
+function showNjoftimeToast(sysFrom){
+  document.querySelectorAll('.njoftime-toast').forEach(el=>el.remove());
+  const el = document.createElement('div');
+  el.className = 'njoftime-toast';
+  el.innerHTML = `${ic('chat','thumb-icon')}<span>Njoftim i ri nga ${sysLabel(sysFrom)}</span><span class="toast-close">✕</span>`;
+  const remove = ()=>{ if(el.parentNode) el.parentNode.removeChild(el); };
+  el.onclick = (e)=>{
+    if(e.target.closest('.toast-close')){ remove(); return; }
+    if(!currentSystem) return;
+    currentView = `njoftime-${currentSystem}`;
+    njoftimeOpenedFor = null;
+    document.querySelectorAll('[data-nav]').forEach(x=>x.classList.toggle('active', x.dataset.nav===currentView));
+    renderMain();
+    remove();
+  };
+  document.body.appendChild(el);
+  setTimeout(remove, 7000);
 }
 function startNjoftimePolling(){
   if(njoftimePollSystem === currentSystem && njoftimePollTimer) return;
