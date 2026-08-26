@@ -128,6 +128,7 @@ tr.stok-row-elsewhere{background:#e9edf9;box-shadow:inset 3px 0 0 var(--indigo);
 tr.stok-row-elsewhere:hover{background:#dde3f5;}
 tr.stok-row-elsewhere td{color:var(--indigo);font-weight:700;}
 .tag-elsewhere{background:var(--indigo);color:#fff;font-weight:800;}
+.tag-instock{background:var(--success-bg);color:var(--success);font-weight:800;}
 
 /* ---- Sinjali i kuq lart (badge në menu) — pulson që të bjerë në sy ---- */
 @keyframes pulse-danger{
