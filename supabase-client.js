@@ -23,7 +23,8 @@ async function mirrorTable(table, rows, matchCol){
 /* ---------------- STATE -> SUPABASE ---------------- */
 async function saveStateToSupabase(state){
   const c = state.config;
-  await sb.from('app_config').upsert({
+
+  const configP = sb.from('app_config').upsert({
     id: 1,
     marka_emri: c.markaEmri, emri: c.emri, adresa: c.adresa, nipt: c.nipt, tel: c.tel,
     tvsh: c.tvsh, monedha: c.monedha, print_format: c.printFormat,
@@ -33,80 +34,100 @@ async function saveStateToSupabase(state){
     shpenzime_kategori: c.shpenzimeKategori||[]
   });
 
-  await sb.from('counters').upsert({
+  const countersP = sb.from('counters').upsert({
     id: 1, blerje: state.counters.blerje, transferim: state.counters.transferim, shitje: state.counters.shitje
   });
 
-  await mirrorTable('suppliers', state.suppliers.map(s=>({id:s.id, emri:s.emri, telefon:s.telefon||''})), 'id');
-  await mirrorTable('customers', state.customers.map(c=>({id:c.id, emri:c.emri, telefon:c.telefon||'', adresa:c.adresa||''})), 'id');
-  await mirrorTable('app_users', state.users.map(u=>({id:u.id, emri:u.emri, roli:u.roli, telefon:u.telefon||'', pin:u.pin, sistem:u.sistem})), 'id');
+  const suppliersP = mirrorTable('suppliers', state.suppliers.map(s=>({id:s.id, emri:s.emri, telefon:s.telefon||''})), 'id');
+  const customersP = mirrorTable('customers', state.customers.map(c=>({id:c.id, emri:c.emri, telefon:c.telefon||'', adresa:c.adresa||''})), 'id');
+  const usersP = mirrorTable('app_users', state.users.map(u=>({id:u.id, emri:u.emri, roli:u.roli, telefon:u.telefon||'', pin:u.pin, sistem:u.sistem})), 'id');
 
-  await mirrorTable('products', state.products.map(p=>({id:p.id, kod:p.kod, kategori:p.kategori||'', njesia:p.njesia, min_stok:p.minStok||0})), 'id');
-  const variants = [];
-  state.products.forEach(p=>(p.variants||[]).forEach(v=>variants.push({
-    id:v.id, product_id:p.id, emer:v.emer, masa:v.masa||'', cmimi_blerje:v.cmimiBlerje||0, cmimi_shitje:v.cmimiShitje||0
-  })));
-  await mirrorTable('product_variants', variants, 'id');
+  /* Produktet -> Variantet -> Stoku (varen njëri nga tjetri, kështu mbeten në zinxhir) */
+  const productsChain = (async()=>{
+    await mirrorTable('products', state.products.map(p=>({id:p.id, kod:p.kod, kategori:p.kategori||'', njesia:p.njesia, min_stok:p.minStok||0})), 'id');
+    const variants = [];
+    state.products.forEach(p=>(p.variants||[]).forEach(v=>variants.push({
+      id:v.id, product_id:p.id, emer:v.emer, masa:v.masa||'', cmimi_blerje:v.cmimiBlerje||0, cmimi_shitje:v.cmimiShitje||0
+    })));
+    await mirrorTable('product_variants', variants, 'id');
 
-  const stockRows = [];
-  ['madhe','dyqan'].forEach(mag=>{
-    Object.entries(state.stock[mag]||{}).forEach(([variantId, sasia])=>{
-      stockRows.push({magazina:mag, variant_id:variantId, sasia});
+    const stockRows = [];
+    ['madhe','dyqan'].forEach(mag=>{
+      Object.entries(state.stock[mag]||{}).forEach(([variantId, sasia])=>{
+        stockRows.push({magazina:mag, variant_id:variantId, sasia});
+      });
     });
-  });
-  await sb.from('stock').delete().not('variant_id','is',null);
-  if(stockRows.length) await sb.from('stock').insert(stockRows);
+    await sb.from('stock').delete().not('variant_id','is',null);
+    if(stockRows.length) await sb.from('stock').insert(stockRows);
+  })();
 
-  await mirrorTable('purchases', state.purchases.map(r=>({
-    id:r.id, nr:r.nr, data:r.data, furnitor_id:r.furnitorId||null, magazina:r.magazina,
-    nettotali:r.nettotali||0, tvsh_aplikuar:!!r.tvshAplikuar, tvsh_perqindja:r.tvshPerqindja||0,
-    tvsh_vlera:r.tvshVlera||0, totali:r.totali||0
-  })), 'id');
-  const purchaseItems = [];
-  state.purchases.forEach(r=>(r.items||[]).forEach(it=>purchaseItems.push({
-    purchase_id:r.id, product_id:it.productId, sasia:it.sasia, cmimi:it.cmimi
-  })));
-  await sb.from('purchase_items').delete().not('id','is',null);
-  if(purchaseItems.length) await sb.from('purchase_items').insert(purchaseItems);
+  /* Blerjet -> Zërat e blerjes */
+  const purchasesChain = (async()=>{
+    await mirrorTable('purchases', state.purchases.map(r=>({
+      id:r.id, nr:r.nr, data:r.data, furnitor_id:r.furnitorId||null, magazina:r.magazina,
+      nettotali:r.nettotali||0, tvsh_aplikuar:!!r.tvshAplikuar, tvsh_perqindja:r.tvshPerqindja||0,
+      tvsh_vlera:r.tvshVlera||0, totali:r.totali||0
+    })), 'id');
+    const purchaseItems = [];
+    state.purchases.forEach(r=>(r.items||[]).forEach(it=>purchaseItems.push({
+      purchase_id:r.id, product_id:it.productId, sasia:it.sasia, cmimi:it.cmimi
+    })));
+    await sb.from('purchase_items').delete().not('id','is',null);
+    if(purchaseItems.length) await sb.from('purchase_items').insert(purchaseItems);
+  })();
 
-  await mirrorTable('transfers', state.transfers.map(r=>({
-    id:r.id, nr:r.nr, data:r.data, nga:r.nga, drejt_by:r.drejtBy, status:r.status
-  })), 'id');
-  const transferItems = [];
-  state.transfers.forEach(r=>(r.items||[]).forEach(it=>transferItems.push({
-    transfer_id:r.id, product_id:it.productId, sasia:it.sasia
-  })));
-  await sb.from('transfer_items').delete().not('id','is',null);
-  if(transferItems.length) await sb.from('transfer_items').insert(transferItems);
+  /* Transferimet -> Zërat e transferimit */
+  const transfersChain = (async()=>{
+    await mirrorTable('transfers', state.transfers.map(r=>({
+      id:r.id, nr:r.nr, data:r.data, nga:r.nga, drejt_by:r.drejtBy, status:r.status
+    })), 'id');
+    const transferItems = [];
+    state.transfers.forEach(r=>(r.items||[]).forEach(it=>transferItems.push({
+      transfer_id:r.id, product_id:it.productId, sasia:it.sasia
+    })));
+    await sb.from('transfer_items').delete().not('id','is',null);
+    if(transferItems.length) await sb.from('transfer_items').insert(transferItems);
+  })();
 
-  await mirrorTable('sales', state.sales.map(r=>({
-    id:r.id, nr:r.nr, data:r.data, klient_id:r.klientId||null, nettotali:r.nettotali||0,
-    tvsh_aplikuar:!!r.tvshAplikuar, tvsh_perqindja:r.tvshPerqindja||0, tvsh_vlera:r.tvshVlera||0,
-    totali:r.totali||0, menyra_pageses:r.menyraPageses, mbetet_fillestar:r.mbetetFillestar||0
-  })), 'id');
-  const saleItems = [];
-  state.sales.forEach(r=>(r.items||[]).forEach(it=>saleItems.push({
-    sale_id:r.id, product_id:it.productId, sasia:it.sasia, cmimi:it.cmimi
-  })));
-  await sb.from('sale_items').delete().not('id','is',null);
-  if(saleItems.length) await sb.from('sale_items').insert(saleItems);
+  /* Shitjet -> Zërat e shitjes */
+  const salesChain = (async()=>{
+    await mirrorTable('sales', state.sales.map(r=>({
+      id:r.id, nr:r.nr, data:r.data, klient_id:r.klientId||null, nettotali:r.nettotali||0,
+      tvsh_aplikuar:!!r.tvshAplikuar, tvsh_perqindja:r.tvshPerqindja||0, tvsh_vlera:r.tvshVlera||0,
+      totali:r.totali||0, menyra_pageses:r.menyraPageses, mbetet_fillestar:r.mbetetFillestar||0
+    })), 'id');
+    const saleItems = [];
+    state.sales.forEach(r=>(r.items||[]).forEach(it=>saleItems.push({
+      sale_id:r.id, product_id:it.productId, sasia:it.sasia, cmimi:it.cmimi
+    })));
+    await sb.from('sale_items').delete().not('id','is',null);
+    if(saleItems.length) await sb.from('sale_items').insert(saleItems);
+  })();
 
-  await mirrorTable('payments', state.payments.map(r=>({
+  const paymentsP = mirrorTable('payments', state.payments.map(r=>({
     id:r.id, data:r.data, klient_id:r.klientId||null, shuma:r.shuma, shenim:r.shenim||''
   })), 'id');
 
-  await mirrorTable('cash_movements', state.cashMovements.map(r=>({
+  const cashP = mirrorTable('cash_movements', state.cashMovements.map(r=>({
     id:r.id, data:r.data, lloji:r.lloji, shuma:r.shuma, pershkrim:r.pershkrim||'',
     sale_id:r.saleId||null, expense_id:r.expenseId||null
   })), 'id');
 
-  await mirrorTable('expenses', state.expenses.map(r=>({
+  const expensesP = mirrorTable('expenses', state.expenses.map(r=>({
     id:r.id, data:r.data, kategori:r.kategori, pershkrim:r.pershkrim||'', shuma:r.shuma
   })), 'id');
 
-  await mirrorTable('xhiro_closures', state.xhiroClosures.map(r=>({
+  const xhiroP = mirrorTable('xhiro_closures', state.xhiroClosures.map(r=>({
     id:r.id, data:r.data, payload:r
   })), 'id');
+
+  /* Të gjitha "zinxhirët" e pavarur ekzekutohen njëkohësisht (paralel), jo njëri
+     pas tjetrit — kjo e ul ndjeshëm kohën e ruajtjes (p.sh. krijimi i një fature). */
+  await Promise.all([
+    configP, countersP, suppliersP, customersP, usersP,
+    productsChain, purchasesChain, transfersChain, salesChain,
+    paymentsP, cashP, expensesP, xhiroP
+  ]);
 }
 
 /* ---------------- SUPABASE -> STATE ---------------- */
