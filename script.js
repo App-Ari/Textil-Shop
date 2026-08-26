@@ -182,6 +182,7 @@ input.input-danger{border-color:var(--danger);background:var(--danger-bg);}
 @media (max-width:640px){
   .variant-row{grid-template-columns:1fr 1fr;}
   .item-row,.item-row-2{grid-template-columns:1fr 1fr;}
+  .variant-select{font-size:16px;min-width:110px;max-width:100%;}
 }
 
 .thumb-icon{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;vertical-align:-3px;margin-right:4px;}
