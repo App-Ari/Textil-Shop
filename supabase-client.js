@@ -42,22 +42,20 @@ async function saveStateToSupabase(state){
   const customersP = mirrorTable('customers', state.customers.map(c=>({id:c.id, emri:c.emri, telefon:c.telefon||'', adresa:c.adresa||''})), 'id');
   const usersP = mirrorTable('app_users', state.users.map(u=>({id:u.id, emri:u.emri, roli:u.roli, telefon:u.telefon||'', pin:u.pin, sistem:u.sistem})), 'id');
 
-  /* Produktet -> Variantet -> Stoku (varen njëri nga tjetri, kështu mbeten në zinxhir) */
+  /* Produktet -> Stoku (varen njëri nga tjetri, kështu mbeten në zinxhir) */
   const productsChain = (async()=>{
-    await mirrorTable('products', state.products.map(p=>({id:p.id, kod:p.kod, kategori:p.kategori||'', njesia:p.njesia, min_stok:p.minStok||0})), 'id');
-    const variants = [];
-    state.products.forEach(p=>(p.variants||[]).forEach(v=>variants.push({
-      id:v.id, product_id:p.id, emer:v.emer, masa:v.masa||'', cmimi_blerje:v.cmimiBlerje||0, cmimi_shitje:v.cmimiShitje||0
-    })));
-    await mirrorTable('product_variants', variants, 'id');
+    await mirrorTable('products', state.products.map(p=>({
+      id:p.id, kod:p.kod, kategori:p.kategori||'', emri:p.emri||'', masa:p.masa||'',
+      njesia:p.njesia, min_stok:p.minStok||0, cmimi_blerje:p.cmimiBlerje||0, cmimi_shitje:p.cmimiShitje||0
+    })), 'id');
 
     const stockRows = [];
     ['madhe','dyqan'].forEach(mag=>{
-      Object.entries(state.stock[mag]||{}).forEach(([variantId, sasia])=>{
-        stockRows.push({magazina:mag, variant_id:variantId, sasia});
+      Object.entries(state.stock[mag]||{}).forEach(([productId, sasia])=>{
+        stockRows.push({magazina:mag, product_id:productId, sasia});
       });
     });
-    await sb.from('stock').delete().not('variant_id','is',null);
+    await sb.from('stock').delete().not('product_id','is',null);
     if(stockRows.length) await sb.from('stock').insert(stockRows);
   })();
 
@@ -135,7 +133,7 @@ async function loadStateFromSupabase(){
   const [
     { data: configRow }, { data: countersRow },
     { data: suppliers }, { data: customers }, { data: users },
-    { data: products }, { data: variants }, { data: stockRows },
+    { data: products }, { data: stockRows },
     { data: purchases }, { data: purchaseItems },
     { data: transfers }, { data: transferItems },
     { data: sales }, { data: saleItems },
@@ -148,7 +146,6 @@ async function loadStateFromSupabase(){
     sb.from('customers').select('*'),
     sb.from('app_users').select('*'),
     sb.from('products').select('*'),
-    sb.from('product_variants').select('*'),
     sb.from('stock').select('*'),
     sb.from('purchases').select('*'),
     sb.from('purchase_items').select('*'),
@@ -178,14 +175,12 @@ async function loadStateFromSupabase(){
   };
 
   const productsOut = (products||[]).map(p=>({
-    id:p.id, kod:p.kod, kategori:p.kategori, njesia:p.njesia, minStok:p.min_stok,
-    variants: (variants||[]).filter(v=>v.product_id===p.id).map(v=>({
-      id:v.id, emer:v.emer, masa:v.masa, cmimiBlerje:v.cmimi_blerje, cmimiShitje:v.cmimi_shitje
-    }))
+    id:p.id, kod:p.kod, kategori:p.kategori, emri:p.emri||'', masa:p.masa||'',
+    njesia:p.njesia, minStok:p.min_stok, cmimiBlerje:p.cmimi_blerje||0, cmimiShitje:p.cmimi_shitje||0
   }));
 
   const stock = { madhe:{}, dyqan:{} };
-  (stockRows||[]).forEach(r=>{ stock[r.magazina] = stock[r.magazina]||{}; stock[r.magazina][r.variant_id] = r.sasia; });
+  (stockRows||[]).forEach(r=>{ stock[r.magazina] = stock[r.magazina]||{}; stock[r.magazina][r.product_id] = r.sasia; });
 
   const purchasesOut = (purchases||[]).map(r=>({
     id:r.id, nr:r.nr, data:r.data, furnitorId:r.furnitor_id, magazina:r.magazina,
