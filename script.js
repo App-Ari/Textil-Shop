@@ -386,13 +386,35 @@ function lowStockCount(sys){
   return allVariantRows().filter(({p,v})=>stockOf(sys,v.id) <= (p.minStok||0)).length;
 }
 let njoftimeUnread = {madhe:0, dyqan:0};
+let njoftimeUnreadInit = {madhe:false, dyqan:false};
 let njoftimePollTimer = null;
 let njoftimePollSystem = null;
+function playNjoftimeBeep(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(880, ctx.currentTime);
+    o.frequency.setValueAtTime(1320, ctx.currentTime+0.09);
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.28, ctx.currentTime+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.24);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime+0.26);
+    o.onended = ()=>ctx.close();
+  }catch(e){}
+}
 async function refreshNjoftimeBadge(){
   if(!currentSystem) return;
+  let cnt;
   try{
-    njoftimeUnread[currentSystem] = await fetchUnreadCount(currentSystem);
+    cnt = await fetchUnreadCount(currentSystem);
   }catch(e){ return; }
+  const prev = njoftimeUnread[currentSystem]||0;
+  if(njoftimeUnreadInit[currentSystem] && cnt>prev) playNjoftimeBeep();
+  njoftimeUnreadInit[currentSystem] = true;
+  njoftimeUnread[currentSystem] = cnt;
   const btn = document.querySelector(`[data-nav="njoftime-${currentSystem}"] span`);
   if(btn) btn.innerHTML = navLabel({id:`njoftime-${currentSystem}`, label:'Njoftime'});
 }
@@ -400,6 +422,7 @@ function startNjoftimePolling(){
   if(njoftimePollSystem === currentSystem && njoftimePollTimer) return;
   if(njoftimePollTimer) clearInterval(njoftimePollTimer);
   njoftimePollSystem = currentSystem;
+  njoftimeUnreadInit[currentSystem] = false;
   refreshNjoftimeBadge();
   njoftimePollTimer = setInterval(refreshNjoftimeBadge, 20000);
 }
@@ -683,8 +706,8 @@ function viewProdukte(){
 }
 function variantRowHtml(v, idx, sysLbl, stockVal){
   return `<div class="variant-row" data-variant-row="${idx}" data-vid="${v.id}">
-    <div class="field" style="margin-bottom:0;"><label>Emri ${idx+1}</label><input required data-vf="emer" value="${v.emer||''}" placeholder="p.sh. E kuqe"></div>
-    <div class="field" style="margin-bottom:0;"><label>Masa</label><input data-vf="masa" value="${v.masa||''}" placeholder="p.sh. 1.40m"></div>
+    <div class="field" style="margin-bottom:0;"><label>Emri ${idx+1}</label><input required data-vf="emer" value="${v.emer||''}"></div>
+    <div class="field" style="margin-bottom:0;"><label>Masa</label><input data-vf="masa" value="${v.masa||''}"></div>
     <div class="field" style="margin-bottom:0;"><label>Çm. Blerje</label><input required type="number" step="0.01" data-vf="cmimiBlerje" value="${v.cmimiBlerje||0}"></div>
     <div class="field" style="margin-bottom:0;"><label>Çm. Shitje</label><input required type="number" step="0.01" data-vf="cmimiShitje" value="${v.cmimiShitje||0}"></div>
     <div class="field" style="margin-bottom:0;"><label>Stok <span class="unit-badge">— ${sysLbl}</span></label><input type="number" step="0.01" data-vf="stok" value="${stockVal||0}"></div>
@@ -703,7 +726,7 @@ function productForm(p){
         <div class="field"><label>Kodi</label><input required name="kod" id="kod-input" value="${base.kod}" autocomplete="off">
           <div id="kod-warning"></div>
         </div>
-        <div class="field"><label>Kategoria / Emri i Grupit</label><input name="kategori" list="kategori-list" value="${base.kategori||''}" placeholder="p.sh. Pëlhurë Pambuku">
+        <div class="field"><label>Kategoria / Emri i Grupit</label><input name="kategori" list="kategori-list" value="${base.kategori||''}">
           <datalist id="kategori-list">${[...new Set(state.products.map(p=>p.kategori).filter(Boolean))].map(k=>`<option value="${k}">`).join('')}</datalist>
         </div>
       </div>
@@ -767,7 +790,7 @@ function bindProdForm(existing){
   let prevNjesia = njesiaSelect.value;
   njesiaSelect.onchange = async ()=>{
     if(njesiaSelect.value !== '__add_new__') return;
-    const val = (prompt('Emri i njësisë së re (p.sh. litër, m²):')||'').trim();
+    const val = (prompt('Emri i njësisë së re:')||'').trim();
     if(!val){ njesiaSelect.innerHTML = njesiaOptionsHtml(prevNjesia); njesiaSelect.value = prevNjesia; return; }
     if(!allUnits().includes(val)){
       state.config.njesiteCustom = state.config.njesiteCustom||[];
@@ -976,7 +999,7 @@ function wireItemsPicker(containerId, withPrice, priceKind, stockCheckSys, tvshC
     let prev = sel.value;
     sel.onchange = async ()=>{
       if(sel.value !== '__add_new__') { prev = sel.value; return; }
-      const val = (prompt('Emri i njësisë së re (p.sh. kuti, litër):')||'').trim();
+      const val = (prompt('Emri i njësisë së re:')||'').trim();
       if(!val){ sel.innerHTML = njesiaOptionsHtml(prev); sel.value = prev; return; }
       if(!allUnits().includes(val)){
         state.config.njesiteCustom = state.config.njesiteCustom||[];
@@ -1456,7 +1479,7 @@ function saleForm(existing){
       </div>
       <p class="hint">Çmimi që shkruan te artikujt konsiderohet çmimi final (me TVSH nëse aplikohet) — nuk shtohet TVSH sipër tij, thjesht ndahet brenda tij.</p>
       ${productSearchDatalist()}
-      <p class="hint">Kërko produktin me kod ose emër — çmimi mbushet automatikisht me çmimin e shitjes, mund të ndryshohet. Për metra, shkruaj thjesht formën dhjetore (p.sh. 1.50 = 1m e 50cm).</p>
+      <p class="hint">Kërko produktin me kod ose emër — çmimi mbushet automatikisht me çmimin e shitjes, mund të ndryshohet. Për metra, shkruaj thjesht formën dhjetore.</p>
       <hr class="stitch">
       <div class="field-row">
         <div class="field"><label>Mënyra e Pagesës</label>
@@ -1588,7 +1611,7 @@ function viewKerkoFatura(sys){
       <p class="hint">Shkruaj emrin e ${sys==='madhe'?'furnitorit':'klientit ose furnitorit'} për të parë të gjitha faturat e tij${sys==='dyqan'?' — blerje dhe shitje —':' (blerje)'} me datë dhe vlerë.</p></div>
     </div>
     <div class="card">
-      <div class="toolbar"><input id="kerko-input" placeholder="p.sh. Filan Fisteku..." style="min-width:280px;" autocomplete="off" autofocus></div>
+      <div class="toolbar"><input id="kerko-input" style="min-width:280px;" autocomplete="off" autofocus></div>
       <div id="kerko-results"><div class="empty">Shkruaj një emër për të kërkuar.</div></div>
     </div>
   `;
@@ -1876,7 +1899,7 @@ function viewNjoftime(sys){
           }).join('')}
       </div>
       <form id="njoftime-form" style="display:flex;gap:8px;margin-top:14px;">
-        <input type="text" id="njoftime-input" placeholder="Shkruaj një njoftim ose kërkesë p.sh. 'Dërgo 20m kadife blu'..." style="flex:1;" autocomplete="off" required>
+        <input type="text" id="njoftime-input" placeholder="Shkruaj një njoftim ose kërkesë..." style="flex:1;" autocomplete="off" required>
         <button type="submit" class="btn btn-terra">Dërgo</button>
       </form>
       <p class="hint">Mesazhi shkon te ${sysLabel(otherSystem(sys))} dhe shfaqet me njoftim (badge të kuq) te menyja "Njoftime" e tyre, brenda ~20 sekondave.</p>
@@ -2007,7 +2030,7 @@ function cashMoveForm(lloji){
         <div class="field"><label>Data</label><input type="date" name="data" value="${xhiroDate}" required></div>
         <div class="field"><label>Shuma</label><input type="number" step="0.01" name="shuma" required></div>
       </div>
-      <div class="field"><label>Përshkrimi</label><input name="pershkrim" required placeholder="p.sh. Pagesë qeraje, avans arke..."></div>
+      <div class="field"><label>Përshkrimi</label><input name="pershkrim" required></div>
       <div style="display:flex;justify-content:flex-end;gap:8px;">
         <button type="button" class="btn btn-ghost" id="m-cancel">Anulo</button>
         <button type="submit" class="btn btn-primary">Ruaj</button>
@@ -2075,7 +2098,7 @@ function expenseForm(){
         <div class="field"><label>Shuma</label><input type="number" step="0.01" name="shuma" required></div>
       </div>
       <div class="field"><label>Kategoria</label><select name="kategori" id="expense-kategori-select">${expenseCategoryOptions(state.config.shpenzimeKategori?.[0])}</select></div>
-      <div class="field"><label>Përshkrimi</label><input name="pershkrim" placeholder="p.sh. Qera dyqani muaji Gusht"></div>
+      <div class="field"><label>Përshkrimi</label><input name="pershkrim"></div>
       <div style="display:flex;justify-content:flex-end;gap:8px;">
         <button type="button" class="btn btn-ghost" id="m-cancel">Anulo</button>
         <button type="submit" class="btn btn-primary">Ruaj Shpenzimin</button>
@@ -2092,7 +2115,7 @@ function wireShpenzime(){
     let prev = sel.value;
     sel.onchange = async ()=>{
       if(sel.value !== '__add_new__'){ prev = sel.value; return; }
-      const val = (prompt('Emri i kategorisë së re (p.sh. Sigurime):')||'').trim();
+      const val = (prompt('Emri i kategorisë së re:')||'').trim();
       if(!val){ sel.innerHTML = expenseCategoryOptions(prev); sel.value = prev; return; }
       if(!(state.config.shpenzimeKategori||[]).includes(val)){
         state.config.shpenzimeKategori = state.config.shpenzimeKategori||[];
@@ -2175,7 +2198,7 @@ function wirePerdorues(sys){
           <div class="field"><label>Roli</label><select name="roli">${STAFF_ROLES.map(r=>`<option value="${r}">${r}</option>`).join('')}</select></div>
           <div class="field"><label>Telefon</label><input name="telefon"></div>
         </div>
-        <div class="field"><label>PIN (min. 4 shifra)</label><input required type="password" inputmode="numeric" name="pin" minlength="4" autocomplete="off" placeholder="p.sh. 1234"></div>
+        <div class="field"><label>PIN (min. 4 shifra)</label><input required type="password" inputmode="numeric" name="pin" minlength="4" autocomplete="off"></div>
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button type="button" class="btn btn-ghost" id="m-cancel">Anulo</button>
           <button type="submit" class="btn btn-primary">Shto</button>
@@ -2242,11 +2265,11 @@ function viewConfigMadhe(){
       <p class="hint">Të dhënat e përgjithshme të biznesit (NIPT, TVSH, Monedha) vendosen te Dyqani. Këtu vendos vetëm emrin/adresën/telefonin e Magazinës së Madhe (opsionale — shfaqen në faturat e hyrjes) dhe formatin e printimit të saj.</p>
       <form id="config-form">
         <div class="field-row">
-          <div class="field"><label>Emri i Magazinës</label><input name="madheEmri" value="${c.madheEmri||''}" placeholder="p.sh. Fill & Stoff — Magazina e Madhe"></div>
-          <div class="field"><label>Telefoni i Magazinës</label><input name="madheTel" value="${c.madheTel||''}" placeholder="p.sh. +355 69 000 0000"></div>
+          <div class="field"><label>Emri i Magazinës</label><input name="madheEmri" value="${c.madheEmri||''}"></div>
+          <div class="field"><label>Telefoni i Magazinës</label><input name="madheTel" value="${c.madheTel||''}"></div>
         </div>
         <div class="field-row">
-          <div class="field"><label>Vendndodhja</label><input name="madheVendndodhja" value="${c.madheVendndodhja||''}" placeholder="p.sh. Rr. Kryesore, Nr. 12, Tiranë"></div>
+          <div class="field"><label>Vendndodhja</label><input name="madheVendndodhja" value="${c.madheVendndodhja||''}"></div>
           <div class="field"><label>Formati i Printimit (parazgjedhur)</label>
             <select name="printFormat">
               <option value="pos80" ${c.printFormat==='pos80'?'selected':''}>POS 80mm</option>
@@ -2385,7 +2408,7 @@ function viewConfigDyqan(){
       <p class="card-title">Emri i Programit</p>
       <p class="hint">Ky emër shfaqet lart në krye të programit (dhe te ekrani i hyrjes), në vend të "Fill & Stoff".</p>
       <form id="config-form-marka" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
-        <div class="field" style="margin-bottom:0;flex:1;min-width:200px;"><label>Emri i Dyqanit / Programit</label><input name="markaEmri" value="${c.markaEmri||''}" placeholder="p.sh. Tekstile Bora"></div>
+        <div class="field" style="margin-bottom:0;flex:1;min-width:200px;"><label>Emri i Dyqanit / Programit</label><input name="markaEmri" value="${c.markaEmri||''}"></div>
         <button type="submit" class="btn btn-primary btn-sm">Ruaj</button>
       </form>
     </div>
@@ -2418,12 +2441,12 @@ function viewConfigDyqan(){
       <p class="hint">Këto fusha identifikojnë pikën e shitjes (dyqanin) veç e veç — shfaqen te paneli dhe te faturat e shitjes. Lëri bosh nëse do të përdorësh të dhënat e përgjithshme të biznesit.</p>
       <form id="config-form-dyqan-info">
         <div class="field-row">
-          <div class="field"><label>Emri i Dyqanit</label><input name="dyqanEmri" value="${c.dyqanEmri||''}" placeholder="p.sh. Fill & Stoff — Dyqani Qendër"></div>
-          <div class="field"><label>Nr. i Dyqanit / Pikës</label><input name="dyqanNr" value="${c.dyqanNr||''}" placeholder="p.sh. Dyqan Nr. 1"></div>
+          <div class="field"><label>Emri i Dyqanit</label><input name="dyqanEmri" value="${c.dyqanEmri||''}"></div>
+          <div class="field"><label>Nr. i Dyqanit / Pikës</label><input name="dyqanNr" value="${c.dyqanNr||''}"></div>
         </div>
         <div class="field-row">
-          <div class="field"><label>Vendndodhja</label><input name="dyqanVendndodhja" value="${c.dyqanVendndodhja||''}" placeholder="p.sh. Rr. Myslym Shyri, Tiranë"></div>
-          <div class="field"><label>Telefoni i Dyqanit</label><input name="dyqanTel" value="${c.dyqanTel||''}" placeholder="p.sh. +355 69 111 2222"></div>
+          <div class="field"><label>Vendndodhja</label><input name="dyqanVendndodhja" value="${c.dyqanVendndodhja||''}"></div>
+          <div class="field"><label>Telefoni i Dyqanit</label><input name="dyqanTel" value="${c.dyqanTel||''}"></div>
         </div>
         <button type="submit" class="btn btn-primary">Ruaj të Dhënat e Dyqanit</button>
       </form>
