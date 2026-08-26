@@ -178,6 +178,19 @@ input.input-danger{border-color:var(--danger);background:var(--danger-bg);}
 .icon-btn{background:var(--danger-bg);color:var(--danger);border:none;border-radius:7px;width:34px;height:34px;cursor:pointer;font-size:15px;}
 .item-row .icon-btn,.item-row-2 .icon-btn,.variant-row .icon-btn{margin-top:20px;}
 .stitch{border:none;border-top:2px dashed var(--line);margin:16px 0;}
+
+/* Lote/Rrotuj — editor te Produkti */
+.lot-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;margin-bottom:8px;}
+.lot-row .icon-btn{margin-top:20px;}
+
+/* Lote/Rrotuj — checkbox picker te Transferimi */
+.lot-picker{grid-column:1 / -1;background:var(--bg);border:1px dashed var(--line);border-radius:8px;padding:8px 10px;margin-top:2px;}
+.lot-picker:empty{display:none;padding:0;margin:0;border:none;}
+.lot-picker-label{display:block;font-size:11px;color:var(--ink-soft);margin-bottom:4px;}
+.lot-check-item{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;text-transform:none;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:20px;padding:4px 10px 4px 8px;margin:0 6px 6px 0;cursor:pointer;}
+.lot-check-item input{width:auto;margin:0;}
+input.lot-locked{background:var(--bg);color:var(--ink-soft);cursor:not-allowed;}
+.lot-breakdown{font-size:10.5px;font-weight:600;color:var(--ink-soft);margin-top:1px;}
 .pin-lock-note{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-soft);}
 
 @media (max-width:640px){
