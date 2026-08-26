@@ -116,14 +116,40 @@ function migrateState(){
     delete state.stock.vogel;
     changed = true;
   }
+  // Bashko variantet (emrat e vjetër) e çdo kodi në 1 produkt të vetëm — 1 kod = 1 çmim = 1 stok total.
+  const variantToProduct = {};
   (state.products||[]).forEach(p=>{
-    if(!p.variants){
-      const vid = p.id; // reuse product id so existing stock (keyed by product id) still resolves
-      p.variants = [{id:vid, emer:p.emri||'Standard', masa:'', cmimiBlerje:p.cmimiBlerje||0, cmimiShitje:p.cmimiShitje||0}];
-      delete p.emri; delete p.cmimiBlerje; delete p.cmimiShitje;
+    if(p.variants){
+      const vs = p.variants.length ? p.variants : [{id:uid(),emer:'',masa:'',cmimiBlerje:0,cmimiShitje:0}];
+      vs.forEach(v=>{ variantToProduct[v.id] = p.id; });
+      ['madhe','dyqan'].forEach(mag=>{
+        state.stock[mag] = state.stock[mag]||{};
+        let sum = 0;
+        vs.forEach(v=>{ sum += (state.stock[mag][v.id]||0); });
+        vs.forEach(v=>{ delete state.stock[mag][v.id]; });
+        state.stock[mag][p.id] = Math.round(sum*1000)/1000;
+      });
+      const first = vs[0];
+      p.emri = first.emer || '';
+      p.masa = first.masa || '';
+      p.cmimiBlerje = first.cmimiBlerje || 0;
+      p.cmimiShitje = first.cmimiShitje || 0;
+      delete p.variants;
       changed = true;
     }
   });
+  if(Object.keys(variantToProduct).length){
+    ['purchases','transfers','sales'].forEach(coll=>{
+      (state[coll]||[]).forEach(rec=>{
+        (rec.items||[]).forEach(it=>{
+          if(it.productId && variantToProduct[it.productId] && variantToProduct[it.productId]!==it.productId){
+            it.productId = variantToProduct[it.productId];
+          }
+        });
+      });
+    });
+    changed = true;
+  }
   (state.transfers||[]).forEach(t=>{
     if(t.drejtBy==='vogel'){ t.drejtBy='dyqan'; changed=true; }
     if(t.nga==='vogel'){ t.nga='dyqan'; changed=true; }
@@ -192,23 +218,13 @@ function findCustomerByName(name){
   if(!n) return null;
   return state.customers.find(c=>c.emri.trim().toLowerCase()===n) || null;
 }
-/* ---- variant helpers ---- */
-function findVariant(vid){
-  for(const p of state.products){
-    const v = (p.variants||[]).find(v=>v.id===vid);
-    if(v) return {product:p, variant:v};
-  }
-  return null;
-}
-function variantLabel(p, v){
-  let lbl = `${p.kod} — ${v.emer}`;
-  if(v.masa) lbl += ` (${v.masa})`;
+/* ---- product helpers ---- */
+function findProduct(pid){ return state.products.find(p=>p.id===pid) || null; }
+function productLabel(p){
+  let lbl = p.kod;
+  if(p.emri) lbl += ` — ${p.emri}`;
+  if(p.masa) lbl += ` (${p.masa})`;
   return lbl;
-}
-function allVariantRows(){
-  const rows = [];
-  state.products.forEach(p=>(p.variants||[]).forEach(v=>rows.push({p, v})));
-  return rows;
 }
 function stockOf(mag, pid){ return (state.stock[mag] && state.stock[mag][pid]) || 0; }
 function addStock(mag, pid, qty){
@@ -239,14 +255,12 @@ function kodWarningHtml(kod, excludeId){
   const matches = findProductsByKod(kod, excludeId);
   if(matches.length===0) return '';
   const parts = matches.map(p=>{
-    const emrat = (p.variants||[]).map(v=>v.emer).filter(Boolean).join(', ') || '—';
-    let stokMadhe=0, stokDyqan=0;
-    (p.variants||[]).forEach(v=>{ stokMadhe+=stockOf('madhe',v.id); stokDyqan+=stockOf('dyqan',v.id); });
+    const stokMadhe = stockOf('madhe',p.id), stokDyqan = stockOf('dyqan',p.id);
     const vende = [];
     if(stokMadhe>0) vende.push(`Magazina e Madhe: ${stokMadhe}`);
     if(stokDyqan>0) vende.push(`Dyqan: ${stokDyqan}`);
     const vendText = vende.length ? vende.join(' · ') : 'pa stok aktualisht në asnjë sistem';
-    return `<b>${p.kod}</b> — ${emrat} (${vendText})`;
+    return `<b>${p.kod}</b> — ${p.emri||'—'} (${vendText})`;
   }).join('<br>');
   return `⚠ Ky kod është në përdorim tashmë te: ${parts}`;
 }
@@ -383,7 +397,7 @@ function debtorsCount(){
   return state.customers.filter(c=>custBalance(c.id)>0.001).length + anonymousDebtSales().length;
 }
 function lowStockCount(sys){
-  return allVariantRows().filter(({p,v})=>stockOf(sys,v.id) <= (p.minStok||0)).length;
+  return state.products.filter(p=>stockOf(sys,p.id) <= (p.minStok||0)).length;
 }
 let njoftimeUnread = {madhe:0, dyqan:0};
 let njoftimeUnreadInit = {madhe:false, dyqan:false};
@@ -637,9 +651,8 @@ function closeModal(){
    PANELI — MAGAZINA E MADHE
    ===================================================================== */
 function viewPaneliMadhe(){
-  const rows = allVariantRows();
-  const valMadhe = rows.reduce((a,{v})=>a+stockOf('madhe',v.id)*v.cmimiBlerje,0);
-  const lowStock = rows.filter(({p,v})=>stockOf('madhe',v.id) <= (p.minStok||0)).slice(0,6);
+  const valMadhe = state.products.reduce((a,p)=>a+stockOf('madhe',p.id)*p.cmimiBlerje,0);
+  const lowStock = state.products.filter(p=>stockOf('madhe',p.id) <= (p.minStok||0)).slice(0,6);
   const pendingIn = pendingIncoming('madhe');
   const lastPurchases = state.purchases.filter(p=>p.magazina==='madhe').sort((a,b)=>b.data.localeCompare(a.data)).slice(0,6);
   return `
@@ -661,7 +674,7 @@ function viewPaneliMadhe(){
     <div class="card">
       <p class="card-title">Stok i Ulët</p>
       ${lowStock.length? `<table><thead><tr><th>Produkti</th><th class="num">Gjendja</th><th class="num">Min.</th></tr></thead><tbody>
-        ${lowStock.map(({p,v})=>`<tr><td>${p.kod} — ${v.emer}</td><td class="num">${stockOf('madhe',v.id)} ${p.njesia}</td><td class="num">${p.minStok||0}</td></tr>`).join('')}
+        ${lowStock.map(p=>`<tr><td>${productLabel(p)}</td><td class="num">${stockOf('madhe',p.id)} ${p.njesia}</td><td class="num">${p.minStok||0}</td></tr>`).join('')}
       </tbody></table>` : `<div class="empty">Asnjë produkt nën nivelin minimal.</div>`}
     </div>
   `;
@@ -672,11 +685,10 @@ function wirePaneliMadhe(){}
    PANELI — DYQAN
    ===================================================================== */
 function viewPaneliDyqan(){
-  const rows = allVariantRows();
-  const valDyqan = rows.reduce((a,{v})=>a+stockOf('dyqan',v.id)*v.cmimiBlerje,0);
+  const valDyqan = state.products.reduce((a,p)=>a+stockOf('dyqan',p.id)*p.cmimiBlerje,0);
   const totShitjeSot = state.sales.filter(s=>s.data===today()).reduce((a,s)=>a+s.totali,0);
   const totDebi = totalDebtAmount();
-  const lowStock = rows.filter(({p,v})=>stockOf('dyqan',v.id) <= (p.minStok||0)).slice(0,6);
+  const lowStock = state.products.filter(p=>stockOf('dyqan',p.id) <= (p.minStok||0)).slice(0,6);
   const pendingIn = pendingIncoming('dyqan');
   const lastSales = [...state.sales].sort((a,b)=>b.data.localeCompare(a.data)||b.nr.localeCompare(a.nr)).slice(0,6);
   return `
@@ -699,7 +711,7 @@ function viewPaneliDyqan(){
     <div class="card">
       <p class="card-title">Stok i Ulët</p>
       ${lowStock.length? `<table><thead><tr><th>Produkti</th><th class="num">Gjendja</th><th class="num">Min.</th></tr></thead><tbody>
-        ${lowStock.map(({p,v})=>`<tr><td>${p.kod} — ${v.emer}</td><td class="num">${stockOf('dyqan',v.id)} ${p.njesia}</td><td class="num">${p.minStok||0}</td></tr>`).join('')}
+        ${lowStock.map(p=>`<tr><td>${productLabel(p)}</td><td class="num">${stockOf('dyqan',p.id)} ${p.njesia}</td><td class="num">${p.minStok||0}</td></tr>`).join('')}
       </tbody></table>` : `<div class="empty">Asnjë produkt nën nivelin minimal — shumë mirë.</div>`}
     </div>
   `;
@@ -714,12 +726,12 @@ function viewProdukte(){
   const hereLbl = sysLabel(here), otherLbl = sysLabel(other);
   return `
     <div class="view-head">
-      <div><div class="view-eyebrow">Katalogu</div><h1 class="view-title">Produkte</h1><p class="hint">Çdo produkt mund të ketë disa emra (variante) — kur ka më shumë se një, zgjidhi nga menyja poshtë kodit, ashtu si zgjedh Njësinë. Katalogu (kodet, emrat, çmimet) është i përbashkët për të dy sistemet, por <b>sasia e stokut është krejtësisht e ndarë</b> — një artikull hyn te ${otherLbl} vetëm përmes një Transferimi të pranuar.</p></div>
+      <div><div class="view-eyebrow">Katalogu</div><h1 class="view-title">Produkte</h1><p class="hint">Çdo kod produkti ka <b>1 emër, 1 çmim blerje, 1 çmim shitje dhe 1 sasi totale stoku</b> për sistem. Katalogu (kodet, emrat, çmimet) është i përbashkët për të dy sistemet, por <b>sasia e stokut është krejtësisht e ndarë</b> — një artikull hyn te ${otherLbl} vetëm përmes një Transferimi të pranuar.</p></div>
       <button class="btn btn-terra" id="btn-new-prod">${ic('plus','thumb-icon')}Produkt i Ri</button>
     </div>
     <div class="card">
       <table class="tbl-produkte"><thead><tr>
-        <th>Kodi</th><th>Grupi</th><th>Emri / Varioni</th><th>Masa</th><th>Njësia</th>
+        <th>Kodi</th><th>Grupi</th><th>Emri</th><th>Masa</th><th>Njësia</th>
         <th class="num">Çm. Blerje</th><th class="num">Çm. Shitje</th>
         <th class="num" style="background:${here==='madhe'?'#eef1f8':'#faf1ea'};">Sasia këtu — ${hereLbl}</th>
         <th class="num" style="color:var(--ink-soft);">Sasia te ${otherLbl} <span class="hint" style="margin:0;">(referencë)</span></th><th></th>
@@ -731,51 +743,28 @@ function viewProdukte(){
   `;
 }
 function productGroupRowHtml(p, here, other){
-  const variants = p.variants||[];
-  const multi = variants.length>1;
-  const first = variants[0]||{id:'',emer:'',masa:'',cmimiBlerje:0,cmimiShitje:0};
-
-  const emriCell = multi
-    ? `<select class="variant-select" data-variant-select="${p.id}">
-        ${variants.map(v=>`<option value="${v.id}"
-            data-masa="${(v.masa||'').replace(/"/g,'&quot;')}"
-            data-cb="${v.cmimiBlerje||0}" data-cs="${v.cmimiShitje||0}"
-            data-here="${stockOf(here,v.id)}" data-other="${stockOf(other,v.id)}">${v.emer}</option>`).join('')}
-      </select>`
-    : (first.emer || '—');
-
   return `
     <tr class="prod-group-row" data-prod-row="${p.id}">
       <td class="mono">${p.kod}</td>
       <td title="${p.kategori||''}">${p.kategori||'—'}</td>
-      <td>${emriCell}</td>
-      <td class="cell-masa">${first.masa||'—'}</td>
+      <td>${p.emri || '—'}</td>
+      <td class="cell-masa">${p.masa||'—'}</td>
       <td>${p.njesia}</td>
-      <td class="num cell-cb">${fmt(first.cmimiBlerje)}</td>
-      <td class="num cell-cs">${fmt(first.cmimiShitje)}</td>
-      <td class="num cell-here" style="font-weight:800;color:${here==='madhe'?'var(--indigo)':'var(--terra)'};background:${here==='madhe'?'#eef1f8':'#faf1ea'};">${stockOf(here,first.id)}</td>
-      <td class="num cell-other" style="color:var(--ink-soft);">${stockOf(other,first.id)}</td>
+      <td class="num cell-cb">${fmt(p.cmimiBlerje)}</td>
+      <td class="num cell-cs">${fmt(p.cmimiShitje)}</td>
+      <td class="num cell-here" style="font-weight:800;color:${here==='madhe'?'var(--indigo)':'var(--terra)'};background:${here==='madhe'?'#eef1f8':'#faf1ea'};">${stockOf(here,p.id)}</td>
+      <td class="num cell-other" style="color:var(--ink-soft);">${stockOf(other,p.id)}</td>
       <td><div class="prod-actions">
           <button class="icon-btn" data-edit-prod="${p.id}" style="background:#eef1f8;color:var(--indigo)">${ic('edit','thumb-icon')}</button>
           <button class="icon-btn" data-del-prod="${p.id}">${ic('trash','thumb-icon')}</button>
       </div></td>
     </tr>`;
 }
-function variantRowHtml(v, idx, sysLbl, stockVal){
-  return `<div class="variant-row" data-variant-row="${idx}" data-vid="${v.id}">
-    <div class="field" style="margin-bottom:0;"><label>Emri ${idx+1}</label><input required data-vf="emer" value="${v.emer||''}"></div>
-    <div class="field" style="margin-bottom:0;"><label>Masa</label><input data-vf="masa" value="${v.masa||''}"></div>
-    <div class="field" style="margin-bottom:0;"><label>Çm. Blerje</label><input required type="number" step="0.01" data-vf="cmimiBlerje" value="${v.cmimiBlerje||0}"></div>
-    <div class="field" style="margin-bottom:0;"><label>Çm. Shitje</label><input required type="number" step="0.01" data-vf="cmimiShitje" value="${v.cmimiShitje||0}"></div>
-    <div class="field" style="margin-bottom:0;"><label>Stok <span class="unit-badge">— ${sysLbl}</span></label><input type="number" step="0.01" data-vf="stok" value="${stockVal||0}"></div>
-    <button type="button" class="icon-btn" data-remove-variant>${ic('trash','thumb-icon')}</button>
-  </div>`;
-}
 function productForm(p){
   const isEdit = !!p;
-  const base = p || {kod:'',kategori:'',njesia:'copë',minStok:0,variants:[{id:uid(),emer:'',masa:'',cmimiBlerje:0,cmimiShitje:0}]};
-  const variants = base.variants && base.variants.length ? base.variants : [{id:uid(),emer:'',masa:'',cmimiBlerje:0,cmimiShitje:0}];
+  const base = p || {kod:'',kategori:'',emri:'',masa:'',njesia:'copë',minStok:0,cmimiBlerje:0,cmimiShitje:0};
   const sysLbl = sysLabel(currentSystem);
+  const stockVal = isEdit ? stockOf(currentSystem, base.id) : 0;
   return `
     <div class="modal-head"><h3>${isEdit?'Modifiko Produktin':'Produkt i Ri'}</h3><button class="close-x" id="m-close">✕</button></div>
     <form id="prod-form">
@@ -788,21 +777,24 @@ function productForm(p){
         </div>
       </div>
       <div class="field-row">
+        <div class="field"><label>Emri (opsionale)</label><input name="emri" value="${base.emri||''}"></div>
+        <div class="field"><label>Masa</label><input name="masa" value="${base.masa||''}"></div>
+      </div>
+      <div class="field-row">
         <div class="field"><label>Njësia</label>
           <select name="njesia" id="njesia-select">${njesiaOptionsHtml(base.njesia)}</select>
         </div>
         <div class="field"><label>Stoku Minimal (për sinjalizim)</label><input type="number" step="0.01" name="minStok" value="${base.minStok||0}"></div>
       </div>
+      <div class="field-row">
+        <div class="field"><label>Çm. Blerje</label><input required type="number" step="0.01" name="cmimiBlerje" value="${base.cmimiBlerje||0}"></div>
+        <div class="field"><label>Çm. Shitje</label><input required type="number" step="0.01" name="cmimiShitje" value="${base.cmimiShitje||0}"></div>
+      </div>
       <hr class="stitch">
       <div class="lock-badge" style="background:${currentSystem==='madhe'?'#eef1f8':'#faf1ea'};color:${currentSystem==='madhe'?'var(--indigo)':'var(--terra)'};margin-bottom:10px;">
         ${ic(currentSystem==='madhe'?'madhe':'vogel2','thumb-icon')} Stoku i vendosur më poshtë do të shtohet vetëm te<b style="color:#000;font-style:italic;margin-left:4px;">${sysLbl}</b>. Për ta pasur edhe te ${sysLabel(otherSystem(currentSystem))}, duhet një Transferim i pranuar nga ana tjetër.
       </div>
-      <label>Emrat / Variantet e Produktit</label>
-      <p class="hint">Shto sa emra të duash (emër 1, emër 2, emër 3...). Secili emër ka masën dhe çmimet e veta.</p>
-      <div id="variant-rows">
-        ${variants.map((v,idx)=>variantRowHtml(v,idx,sysLbl,stockOf(currentSystem,v.id))).join('')}
-        <button type="button" class="btn btn-ghost btn-sm" id="variant-addbtn">${ic('plus','thumb-icon')}Shto Emër Tjetër</button>
-      </div>
+      <div class="field"><label>Stok Total <span class="unit-badge">— ${sysLbl}</span></label><input type="number" step="0.01" name="stok" value="${stockVal}"></div>
       <hr class="stitch">
       <div style="display:flex;justify-content:flex-end;gap:8px;">
         <button type="button" class="btn btn-ghost" id="m-cancel">Anulo</button>
@@ -816,17 +808,6 @@ function wireProdukte(){
     openModal(productForm(null), true);
     bindProdForm(null);
   };
-  document.querySelectorAll('[data-variant-select]').forEach(sel=>{
-    sel.onchange = ()=>{
-      const opt = sel.selectedOptions[0];
-      const tr = sel.closest('tr');
-      tr.querySelector('.cell-masa').textContent = opt.dataset.masa || '—';
-      tr.querySelector('.cell-cb').textContent = fmt(parseFloat(opt.dataset.cb)||0);
-      tr.querySelector('.cell-cs').textContent = fmt(parseFloat(opt.dataset.cs)||0);
-      tr.querySelector('.cell-here').textContent = opt.dataset.here;
-      tr.querySelector('.cell-other').textContent = opt.dataset.other;
-    };
-  });
   document.querySelectorAll('[data-edit-prod]').forEach(b=>{
     b.onclick = ()=>{
       const p = prodById(b.dataset.editProd);
@@ -869,49 +850,26 @@ function bindProdForm(existing){
     njesiaSelect.value = val;
     prevNjesia = val;
   };
-  const rowsWrap = document.getElementById('variant-rows');
-  const addBtn = document.getElementById('variant-addbtn');
-  function wireRemove(){
-    rowsWrap.querySelectorAll('[data-remove-variant]').forEach(btn=>{
-      btn.onclick = ()=>{
-        if(rowsWrap.querySelectorAll('[data-variant-row]').length<=1){ alert('Duhet të ketë të paktën një emër.'); return; }
-        btn.closest('[data-variant-row]').remove();
-      };
-    });
-  }
-  function addVariantRow(){
-    const idx = rowsWrap.querySelectorAll('[data-variant-row]').length;
-    const div = document.createElement('div');
-    div.innerHTML = variantRowHtml({id:uid(),emer:'',masa:'',cmimiBlerje:0,cmimiShitje:0}, idx, sysLabel(currentSystem), 0);
-    rowsWrap.insertBefore(div.firstElementChild, addBtn);
-    wireRemove();
-  }
-  wireRemove();
-  addBtn.onclick = addVariantRow;
-
   document.getElementById('prod-form').onsubmit = async (e)=>{
     e.preventDefault();
     const f = new FormData(e.target);
-    const variantRows = Array.from(rowsWrap.querySelectorAll('[data-variant-row]')).map(row=>({
-      id: row.dataset.vid,
-      emer: row.querySelector('[data-vf="emer"]').value.trim(),
-      masa: row.querySelector('[data-vf="masa"]').value.trim(),
-      cmimiBlerje: parseFloat(row.querySelector('[data-vf="cmimiBlerje"]').value)||0,
-      cmimiShitje: parseFloat(row.querySelector('[data-vf="cmimiShitje"]').value)||0,
-      stok: parseFloat(row.querySelector('[data-vf="stok"]').value)||0,
-    })).filter(v=>v.emer);
-    if(variantRows.length===0){ alert('Shto të paktën një emër produkti.'); return; }
     const data = {
-      kod:f.get('kod').trim(), kategori:f.get('kategori').trim(),
-      njesia:f.get('njesia'), minStok:parseFloat(f.get('minStok'))||0,
-      variants: variantRows.map(({stok, ...rest})=>rest)
+      kod: f.get('kod').trim(),
+      kategori: f.get('kategori').trim(),
+      emri: (f.get('emri')||'').trim(),
+      masa: (f.get('masa')||'').trim(),
+      njesia: f.get('njesia'),
+      minStok: parseFloat(f.get('minStok'))||0,
+      cmimiBlerje: parseFloat(f.get('cmimiBlerje'))||0,
+      cmimiShitje: parseFloat(f.get('cmimiShitje'))||0,
     };
-    variantRows.forEach(v=>{
-      const diff = v.stok - stockOf(currentSystem, v.id);
-      if(diff !== 0) addStock(currentSystem, v.id, diff);
-    });
-    if(existing){ Object.assign(existing, data); }
-    else { data.id = uid(); state.products.push(data); }
+    if(!data.kod){ alert('Shkruaj kodin e produktit.'); return; }
+    const newStock = parseFloat(f.get('stok'))||0;
+    let productId;
+    if(existing){ productId = existing.id; Object.assign(existing, data); }
+    else { productId = uid(); data.id = productId; state.products.push(data); }
+    const diff = newStock - stockOf(currentSystem, productId);
+    if(diff !== 0) addStock(currentSystem, productId, diff);
     closeModal();
     await refresh();
   };
@@ -929,38 +887,27 @@ function pendingOutMap(sys){
 }
 function viewStok(sys){
   const otherSys = otherSystem(sys), otherLbl = sysLabel(otherSys);
-  const rows = allVariantRows();
-  const low = rows.filter(({p,v})=>stockOf(sys,v.id) <= (p.minStok||0));
+  const low = state.products.filter(p=>stockOf(sys,p.id) <= (p.minStok||0));
   const pendOut = pendingOutMap(sys);
   const bodyHtml = state.products.length===0
     ? `<tr><td colspan="8"><div class="empty">S'ka produkte ende.</div></td></tr>`
     : state.products.map(p=>{
-        const variants = p.variants||[];
-        const variantRowsHtml = variants.map(v=>{
-          const q = stockOf(sys,v.id);
-          const qOther = stockOf(otherSys,v.id);
-          const isLow = q <= (p.minStok||0);
-          const elsewhere = q===0 && qOther>0;
-          const transferuar = pendOut[v.id] || 0;
-          const rowClass = elsewhere ? 'stok-row-elsewhere' : (isLow ? 'stok-row-alert' : (transferuar>0 ? 'stok-row-transfer' : ''));
-          const qtyClass = elsewhere ? 'qty-elsewhere' : (isLow ? 'qty-alert' : (transferuar>0 ? 'qty-transfer' : ''));
-          const tagHtml = elsewhere
-            ? `<span class="tag tag-elsewhere">🔵 Ndodhet te ${otherLbl} — ${qOther} ${p.njesia}</span>`
-            : (isLow
-              ? '<span class="tag tag-bad">Stok i ulët</span>'
-              : (transferuar>0
-                ? '<span class="tag tag-transfer">Në transferim</span>'
-                : `<span class="tag tag-instock">🟢 Ndodhet te ${sysLabel(sys)} — ${q} ${p.njesia}</span>`));
-          const transferCell = transferuar>0 ? `<span class="qty-transfer">− ${transferuar} ${p.njesia}</span>` : '<span style="color:var(--ink-soft);">—</span>';
-          return `<tr class="${rowClass}"><td class="mono">${p.kod}</td><td>${p.kategori?p.kategori+' — ':''}${v.emer}</td><td>${v.masa||'—'}</td><td>${p.njesia}</td><td class="num ${qtyClass}">${q}</td><td class="num">${transferCell}</td><td class="num">${fmt(q*v.cmimiBlerje)}</td><td>${tagHtml}</td></tr>`;
-        }).join('');
-        let totalRowHtml = '';
-        if(variants.length>1){
-          const totalQ = variants.reduce((a,v)=>a+stockOf(sys,v.id),0);
-          const totalVal = variants.reduce((a,v)=>a+stockOf(sys,v.id)*(v.cmimiBlerje||0),0);
-          totalRowHtml = `<tr class="stok-row-total"><td class="mono">${p.kod}</td><td colspan="3">Totali — ${p.kod}${p.kategori?' ('+p.kategori+')':''}</td><td class="num">${totalQ} ${p.njesia}</td><td></td><td class="num">${fmt(totalVal)}</td><td></td></tr>`;
-        }
-        return variantRowsHtml + totalRowHtml;
+        const q = stockOf(sys,p.id);
+        const qOther = stockOf(otherSys,p.id);
+        const isLow = q <= (p.minStok||0);
+        const elsewhere = q===0 && qOther>0;
+        const transferuar = pendOut[p.id] || 0;
+        const rowClass = elsewhere ? 'stok-row-elsewhere' : (isLow ? 'stok-row-alert' : (transferuar>0 ? 'stok-row-transfer' : ''));
+        const qtyClass = elsewhere ? 'qty-elsewhere' : (isLow ? 'qty-alert' : (transferuar>0 ? 'qty-transfer' : ''));
+        const tagHtml = elsewhere
+          ? `<span class="tag tag-elsewhere">🔵 Ndodhet te ${otherLbl} — ${qOther} ${p.njesia}</span>`
+          : (isLow
+            ? '<span class="tag tag-bad">Stok i ulët</span>'
+            : (transferuar>0
+              ? '<span class="tag tag-transfer">Në transferim</span>'
+              : `<span class="tag tag-instock">🟢 Ndodhet te ${sysLabel(sys)} — ${q} ${p.njesia}</span>`));
+        const transferCell = transferuar>0 ? `<span class="qty-transfer">− ${transferuar} ${p.njesia}</span>` : '<span style="color:var(--ink-soft);">—</span>';
+        return `<tr class="${rowClass}"><td class="mono">${p.kod}</td><td>${p.kategori?p.kategori+' — ':''}${p.emri||'—'}</td><td>${p.masa||'—'}</td><td>${p.njesia}</td><td class="num ${qtyClass}">${q}</td><td class="num">${transferCell}</td><td class="num">${fmt(q*p.cmimiBlerje)}</td><td>${tagHtml}</td></tr>`;
       }).join('');
   return `
     <div class="view-head">
@@ -969,19 +916,19 @@ function viewStok(sys){
     ${low.length? `<div class="card" style="border-color:var(--danger);">
       <p class="card-title">⚠ Alarme Stoku (${low.length})</p>
       <table><thead><tr><th>Produkti</th><th class="num">Gjendja</th><th class="num">Min.</th></tr></thead><tbody>
-      ${low.map(({p,v})=>{
-        const qOther = stockOf(otherSys,v.id);
-        const elsewhere = stockOf(sys,v.id)===0 && qOther>0;
-        return `<tr class="${elsewhere?'stok-row-elsewhere':'stok-row-alert'}"><td>${p.kod} — ${v.emer}${elsewhere?` <span class="tag tag-elsewhere">🔵 Te ${otherLbl}</span>`:''}</td><td class="num ${elsewhere?'qty-elsewhere':'qty-alert'}">${stockOf(sys,v.id)} ${p.njesia}</td><td class="num">${p.minStok||0}</td></tr>`;
+      ${low.map(p=>{
+        const qOther = stockOf(otherSys,p.id);
+        const elsewhere = stockOf(sys,p.id)===0 && qOther>0;
+        return `<tr class="${elsewhere?'stok-row-elsewhere':'stok-row-alert'}"><td>${productLabel(p)}${elsewhere?` <span class="tag tag-elsewhere">🔵 Te ${otherLbl}</span>`:''}</td><td class="num ${elsewhere?'qty-elsewhere':'qty-alert'}">${stockOf(sys,p.id)} ${p.njesia}</td><td class="num">${p.minStok||0}</td></tr>`;
       }).join('')}
       </tbody></table>
     </div>` : ''}
     <div class="card">
       <p class="card-title">Gjendja e Plotë</p>
-      <table><thead><tr><th>Kodi</th><th>Produkti / Varioni</th><th>Masa</th><th>Njësia</th><th class="num">Sasia</th><th class="num">Në Transferim</th><th class="num">Vlera (blerje)</th><th></th></tr></thead><tbody>
+      <table><thead><tr><th>Kodi</th><th>Produkti</th><th>Masa</th><th>Njësia</th><th class="num">Sasia</th><th class="num">Në Transferim</th><th class="num">Vlera (blerje)</th><th></th></tr></thead><tbody>
       ${bodyHtml}
       </tbody></table>
-      <p class="hint">🔴 Rreshti i kuq = stoku është nën minimum (alarm). 🔵 Etiketa blu = 0 këtu, por gjendet te ${otherLbl}. 🟢 Etiketa jeshile = ka gjendje normale këtu te ${sysLabel(sys)}. 🟡 Rreshti i verdhë = ka material të dërguar në transferim, ende në pritje pranimi — sasia në kolonën "Sasia" tregon çfarë <b>ka mbetur</b> pas atij transferimi. ⚫ Rreshti "Totali" mbledh bashkë të gjitha varionet e të njëjtit kod.</p>
+      <p class="hint">🔴 Rreshti i kuq = stoku është nën minimum (alarm). 🔵 Etiketa blu = 0 këtu, por gjendet te ${otherLbl}. 🟢 Etiketa jeshile = ka gjendje normale këtu te ${sysLabel(sys)}. 🟡 Rreshti i verdhë = ka material të dërguar në transferim, ende në pritje pranimi — sasia në kolonën "Sasia" tregon çfarë <b>ka mbetur</b> pas atij transferimi. Sasia e treguar është <b>totali i të gjithë kodit</b> te ${sysLabel(sys)}.</p>
     </div>
   `;
 }
@@ -992,16 +939,16 @@ function wireStokDyqan(){}
 
 /* ---- Item picker: search-as-you-type (datalist) shared by hyrje / transfer / shitje ---- */
 function productSearchDatalist(){
-  return `<datalist id="product-search-list">${allVariantRows().map(({p,v})=>`<option value="${variantLabel(p,v)}"></option>`).join('')}</datalist>`;
+  return `<datalist id="product-search-list">${state.products.map(p=>`<option value="${productLabel(p)}"></option>`).join('')}</datalist>`;
 }
 function itemsPickerRows(existingItems, withPrice){
   const items = existingItems && existingItems.length ? existingItems : [{productId:'',sasia:'',cmimi:''}];
   return items.map((it,idx)=>itemRowHtml(it, idx, withPrice)).join('');
 }
 function itemRowHtml(it, idx, withPrice){
-  const ref = it.productId ? findVariant(it.productId) : null;
-  const labelVal = ref ? variantLabel(ref.product, ref.variant) : '';
-  const unitVal = ref ? ref.product.njesia : '';
+  const ref = it.productId ? findProduct(it.productId) : null;
+  const labelVal = ref ? productLabel(ref) : '';
+  const unitVal = ref ? ref.njesia : '';
   const sasiaField = withPrice
     ? `<div><label>Sasia <span data-f="unit-label" class="unit-badge">${unitVal}</span></label><input type="number" step="0.01" data-f="sasia" value="${it.sasia||''}"><small data-f="stock-info" class="stock-info"></small></div>`
     : `<div><label>Sasia</label><input type="number" step="0.01" data-f="sasia" value="${it.sasia||''}"><small data-f="stock-info" class="stock-info"></small></div>
@@ -1109,14 +1056,14 @@ function wireItemsPicker(containerId, withPrice, priceKind, stockCheckSys, tvshC
     const sasiaEl = row.querySelector('[data-f="sasia"]');
     if(!hidden || !stockEl) return;
     if(!hidden.value){ stockEl.textContent=''; stockEl.className='stock-info'; if(sasiaEl) sasiaEl.classList.remove('input-danger'); return; }
-    const ref = findVariant(hidden.value);
+    const ref = findProduct(hidden.value);
     const totalStock = stockOf(stockCheckSys, hidden.value);
     const usedElsewhere = sumSasiaForProduct(cont, hidden.value, row);
     const availHere = totalStock - usedElsewhere;
     const sasia = parseFloat(sasiaEl?.value)||0;
     const over = sasia > availHere;
     const sysLbl = sysLabel(stockCheckSys).toLowerCase();
-    let msg = `Në stok (${sysLbl}): ${totalStock} ${ref?ref.product.njesia:''}`;
+    let msg = `Në stok (${sysLbl}): ${totalStock} ${ref?ref.njesia:''}`;
     if(usedElsewhere>0) msg += ` (${usedElsewhere} tashmë të përdorura në rreshta të tjerë më lart)`;
     if(over) msg += ' — kalon stokun!';
     stockEl.textContent = msg;
@@ -1133,16 +1080,16 @@ function wireItemsPicker(containerId, withPrice, priceKind, stockCheckSys, tvshC
     const sasiaEl = row.querySelector('[data-f="sasia"]');
     if(!inp || !hidden) return;
     inp.addEventListener('input', ()=>{
-      const match = allVariantRows().find(({p,v})=>variantLabel(p,v)===inp.value);
+      const match = state.products.find(p=>productLabel(p)===inp.value);
       const unitEl = row.querySelector('[data-f="unit-label"]');
       const unitSel = row.querySelector('[data-f="njesia"]');
       if(match){
-        hidden.value = match.v.id;
-        if(unitEl) unitEl.textContent = match.p.njesia;
-        if(unitSel) unitSel.value = match.p.njesia;
+        hidden.value = match.id;
+        if(unitEl) unitEl.textContent = match.njesia;
+        if(unitSel) unitSel.value = match.njesia;
         if(withPrice && priceKind){
           const priceEl = row.querySelector('[data-f="cmimi"]');
-          if(priceEl) priceEl.value = priceKind==='shitje'?match.v.cmimiShitje:match.v.cmimiBlerje;
+          if(priceEl) priceEl.value = priceKind==='shitje'?match.cmimiShitje:match.cmimiBlerje;
         }
       } else {
         hidden.value = '';
@@ -1211,7 +1158,7 @@ function readItems(containerId){
    TRANSFERIME — me autorizim (dërgohet -> pret pranim -> hyn në stok)
    ===================================================================== */
 function transferForm(sourceMag, destOptions, titleText){
-  const anyStock = state.products.some(p=>(p.variants||[]).some(v=>stockOf(sourceMag,v.id)>0));
+  const anyStock = state.products.some(p=>stockOf(sourceMag,p.id)>0);
   if(!anyStock){
     return `<div class="modal-head"><h3>${titleText}</h3><button class="close-x" id="m-close">✕</button></div>
     <div class="empty">Ky sistem nuk ka stok për t'u transferuar.</div>`;
@@ -1244,9 +1191,9 @@ function transferForm(sourceMag, destOptions, titleText){
 function transferAcceptConfirmHtml(t){
   const destLbl = sysLabel(t.drejtBy), srcLbl = sysLabel(t.nga);
   const rowsHtml = t.items.map(it=>{
-    const ref = findVariant(it.productId);
-    const label = ref ? variantLabel(ref.product, ref.variant) : '—';
-    const njesia = ref ? ref.product.njesia : (it.njesia||'');
+    const ref = findProduct(it.productId);
+    const label = ref ? productLabel(ref) : '—';
+    const njesia = ref ? ref.njesia : (it.njesia||'');
     const before = stockOf(t.drejtBy, it.productId);
     const after = Math.round((before + it.sasia)*1000)/1000;
     return `<tr>
@@ -1296,7 +1243,7 @@ function viewTransfer(sys){
             </div>
           </div>
           <ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px;color:var(--ink-soft);">
-            ${t.items.map(it=>{const ref=findVariant(it.productId); return `<li>${ref?variantLabel(ref.product,ref.variant):'—'}: ${it.sasia} ${it.njesia||(ref?ref.product.njesia:'')}</li>`;}).join('')}
+            ${t.items.map(it=>{const ref=findProduct(it.productId); return `<li>${ref?productLabel(ref):'—'}: ${it.sasia} ${it.njesia||(ref?ref.njesia:'')}</li>`;}).join('')}
           </ul>
         </div>`).join('')}
     </div>` : ''}
@@ -1321,7 +1268,7 @@ function wireTransfer(sys){
     openModal(transferForm(sys, [{val:other,label:sysLabel(other)}], `Transferim — ${sysLabel(sys)} → ${sysLabel(other)}`), true);
     document.getElementById('m-close').onclick = closeModal;
     document.getElementById('m-cancel').onclick = closeModal;
-    if(!state.products.some(p=>(p.variants||[]).some(v=>stockOf(sys,v.id)>0))) return;
+    if(!state.products.some(p=>stockOf(sys,p.id)>0)) return;
     wireItemsPicker('transfer-items', false, null, sys);
     document.getElementById('transfer-form').onsubmit = async (e)=>{
       e.preventDefault();
@@ -1331,8 +1278,8 @@ function wireTransfer(sys){
       const needed = aggregateByProduct(items);
       for(const pid in needed){
         if(needed[pid] > stockOf(sys, pid)){
-          const ref = findVariant(pid);
-          alert(`Sasia totale për "${ref?variantLabel(ref.product,ref.variant):'produktin'}" (${needed[pid]}) kalon gjendjen aktuale (${stockOf(sys,pid)}).`);
+          const ref = findProduct(pid);
+          alert(`Sasia totale për "${ref?productLabel(ref):'produktin'}" (${needed[pid]}) kalon gjendjen aktuale (${stockOf(sys,pid)}).`);
           return;
         }
       }
@@ -1620,8 +1567,8 @@ function openSaleModal(existing){
     for(const pid in needed){
       const alreadyReserved = existing ? (existing.items.filter(it=>it.productId===pid).reduce((a,it)=>a+it.sasia,0)) : 0;
       if(needed[pid] > stockOf('dyqan', pid) + alreadyReserved){
-        const ref = findVariant(pid);
-        alert(`Sasia totale për "${ref?variantLabel(ref.product,ref.variant):'produktin'}" (${needed[pid]}) kalon gjendjen në dyqan (${stockOf('dyqan',pid)+alreadyReserved}).`);
+        const ref = findProduct(pid);
+        alert(`Sasia totale për "${ref?productLabel(ref):'produktin'}" (${needed[pid]}) kalon gjendjen në dyqan (${stockOf('dyqan',pid)+alreadyReserved}).`);
         return;
       }
     }
@@ -1894,13 +1841,12 @@ function wireDebitore(){
    BILANC (Dyqan)
    ===================================================================== */
 function viewBilanc(){
-  const rows = allVariantRows();
-  const valMadhe = rows.reduce((a,{v})=>a+stockOf('madhe',v.id)*v.cmimiBlerje,0);
-  const valDyqan = rows.reduce((a,{v})=>a+stockOf('dyqan',v.id)*v.cmimiBlerje,0);
+  const valMadhe = state.products.reduce((a,p)=>a+stockOf('madhe',p.id)*p.cmimiBlerje,0);
+  const valDyqan = state.products.reduce((a,p)=>a+stockOf('dyqan',p.id)*p.cmimiBlerje,0);
   const totBlerje = state.purchases.reduce((a,p)=>a+p.totali,0);
   const totShitje = state.sales.reduce((a,s)=>a+s.totali,0);
   const costShitur = state.sales.reduce((a,s)=>a+s.items.reduce((aa,it)=>{
-    const ref = findVariant(it.productId); return aa + (ref?ref.variant.cmimiBlerje*it.sasia:0);
+    const ref = findProduct(it.productId); return aa + (ref?ref.cmimiBlerje*it.sasia:0);
   },0),0);
   const fitimi = totShitje - costShitur;
   const totShpenzime = state.expenses.reduce((a,e)=>a+e.shuma,0);
@@ -1925,10 +1871,10 @@ function viewBilanc(){
     <div class="card">
       <p class="card-title">Vlera e Stokut sipas Produktit</p>
       <table><thead><tr><th>Produkti</th><th class="num">Mag. Madhe</th><th class="num">Dyqan</th><th class="num">Total Sasi</th><th class="num">Vlera Totale</th></tr></thead><tbody>
-      ${rows.length===0?`<tr><td colspan="5"><div class="empty">S'ka produkte.</div></td></tr>`:
-        rows.map(({p,v})=>{
-          const m = stockOf('madhe',v.id), d = stockOf('dyqan',v.id);
-          return `<tr><td>${p.kod} — ${v.emer}${v.masa?' ('+v.masa+')':''}</td><td class="num">${m}</td><td class="num">${d}</td><td class="num">${m+d}</td><td class="num">${fmt((m+d)*v.cmimiBlerje)}</td></tr>`;
+      ${state.products.length===0?`<tr><td colspan="5"><div class="empty">S'ka produkte.</div></td></tr>`:
+        state.products.map(p=>{
+          const m = stockOf('madhe',p.id), d = stockOf('dyqan',p.id);
+          return `<tr><td>${productLabel(p)}</td><td class="num">${m}</td><td class="num">${d}</td><td class="num">${m+d}</td><td class="num">${fmt((m+d)*p.cmimiBlerje)}</td></tr>`;
         }).join('')}
       </tbody></table>
     </div>
@@ -2623,8 +2569,8 @@ function wireConfigDyqan(){
    ===================================================================== */
 function invoiceLinesHtml(items, pos){
   return items.map(it=>{
-    const ref = findVariant(it.productId);
-    const emri = ref ? `${ref.product.kod} ${ref.variant.emer}${ref.variant.masa?' ('+ref.variant.masa+')':''}` : '—';
+    const ref = findProduct(it.productId);
+    const emri = ref ? productLabel(ref) : '—';
     const cmimi = it.cmimi!==undefined?it.cmimi:0;
     const rresht = it.sasia*cmimi;
     return pos
