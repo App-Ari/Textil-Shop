@@ -222,3 +222,26 @@ async function loadStateFromSupabase(){
     config
   };
 }
+
+/* ---------------- NJOFTIME / KËRKESA (Dyqan <-> Magazina e Madhe) ----------------
+   Këto NUK kalojnë nëpër mirror-in e plotë të state-it (për të mos rrezikuar
+   fshirjen e mesazheve të anës tjetër nëse dikush ka state lokal të vjetëruar).
+   Lexohen/shkruhen direkt te Supabase, sa herë hapet faqja ose çdo pak sekonda. */
+async function fetchMessages(){
+  const { data, error } = await sb.from('messages').select('*').order('created_at', { ascending:false }).limit(200);
+  if(error){ console.error('fetchMessages', error); return []; }
+  return data||[];
+}
+async function sendMessage(nga, drejt, teksti){
+  const { error } = await sb.from('messages').insert({ nga, drejt, teksti, lexuar:false });
+  if(error){ console.error('sendMessage', error); throw error; }
+}
+async function markMessagesRead(sys){
+  const { error } = await sb.from('messages').update({ lexuar:true }).eq('drejt', sys).eq('lexuar', false);
+  if(error){ console.error('markMessagesRead', error); }
+}
+async function fetchUnreadCount(sys){
+  const { count, error } = await sb.from('messages').select('id', { count:'exact', head:true }).eq('drejt', sys).eq('lexuar', false);
+  if(error){ console.error('fetchUnreadCount', error); return 0; }
+  return count||0;
+}
