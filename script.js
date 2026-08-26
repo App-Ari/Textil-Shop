@@ -709,35 +709,81 @@ function wirePaneliDyqan(){}
 /* =====================================================================
    PRODUKTE (vetëm te Magazina e Madhe)
    ===================================================================== */
+let expandedProdIds = new Set();
 function viewProdukte(){
-  const rows = allVariantRows();
   const here = currentSystem, other = otherSystem(currentSystem);
   const hereLbl = sysLabel(here), otherLbl = sysLabel(other);
   return `
     <div class="view-head">
-      <div><div class="view-eyebrow">Katalogu</div><h1 class="view-title">Produkte</h1><p class="hint">Çdo produkt mund të ketë disa emra (variante) — secili me masën dhe çmimet e veta. Katalogu (kodet, emrat, çmimet) është i përbashkët për të dy sistemet, por <b>sasia e stokut është krejtësisht e ndarë</b> — një artikull hyn te ${otherLbl} vetëm përmes një Transferimi të pranuar.</p></div>
+      <div><div class="view-eyebrow">Katalogu</div><h1 class="view-title">Produkte</h1><p class="hint">Çdo produkt mund të ketë disa emra (variante) — secili me masën dhe çmimet e veta. Klliko mbi një produkt me disa variante për ta hapur. Katalogu (kodet, emrat, çmimet) është i përbashkët për të dy sistemet, por <b>sasia e stokut është krejtësisht e ndarë</b> — një artikull hyn te ${otherLbl} vetëm përmes një Transferimi të pranuar.</p></div>
       <button class="btn btn-terra" id="btn-new-prod">${ic('plus','thumb-icon')}Produkt i Ri</button>
     </div>
     <div class="card">
       <table><thead><tr>
-        <th>Kodi</th><th>Grupi</th><th>Emri / Varioni</th><th>Masa</th><th>Njësia</th>
+        <th style="width:30px;"></th><th>Kodi</th><th>Grupi</th><th>Emri / Varioni</th><th>Masa</th><th>Njësia</th>
         <th class="num">Çm. Blerje</th><th class="num">Çm. Shitje</th>
         <th class="num" style="background:${here==='madhe'?'#eef1f8':'#faf1ea'};">Sasia këtu — ${hereLbl}</th>
         <th class="num" style="color:var(--ink-soft);">Sasia te ${otherLbl} <span class="hint" style="margin:0;">(referencë)</span></th><th></th>
       </tr></thead><tbody>
-      ${state.products.length===0? `<tr><td colspan="10"><div class="empty">Nuk ka produkte ende. Shto produktin e parë.</div></td></tr>` :
-        state.products.map(p=>(p.variants||[]).map((v,vi)=>`
-        <tr>
-          <td class="mono">${p.kod}</td><td>${p.kategori||'—'}</td><td>${v.emer}</td><td>${v.masa||'—'}</td><td>${p.njesia}</td>
-          <td class="num">${fmt(v.cmimiBlerje)}</td><td class="num">${fmt(v.cmimiShitje)}</td>
-          <td class="num" style="font-weight:800;color:${here==='madhe'?'var(--indigo)':'var(--terra)'};background:${here==='madhe'?'#eef1f8':'#faf1ea'};">${stockOf(here,v.id)}</td>
-          <td class="num" style="color:var(--ink-soft);">${stockOf(other,v.id)}</td>
-          <td>${vi===0?`<button class="icon-btn" data-edit-prod="${p.id}" style="background:#eef1f8;color:var(--indigo)">${ic('edit','thumb-icon')}</button>
-              <button class="icon-btn" data-del-prod="${p.id}">${ic('trash','thumb-icon')}</button>`:''}</td>
-        </tr>`).join('')).join('')}
+      ${state.products.length===0? `<tr><td colspan="11"><div class="empty">Nuk ka produkte ende. Shto produktin e parë.</div></td></tr>` :
+        state.products.map(p=>productGroupRowsHtml(p, here, other, hereLbl, otherLbl)).join('')}
       </tbody></table>
     </div>
   `;
+}
+function productGroupRowsHtml(p, here, other, hereLbl, otherLbl){
+  const variants = p.variants||[];
+  const multi = variants.length>1;
+  const expanded = multi && expandedProdIds.has(p.id);
+  const first = variants[0]||{emer:'',masa:'',cmimiBlerje:0,cmimiShitje:0};
+  const sumHere = variants.reduce((a,v)=>a+stockOf(here,v.id),0);
+  const sumOther = variants.reduce((a,v)=>a+stockOf(other,v.id),0);
+
+  const mainRow = `
+    <tr class="prod-group-row${multi?' is-clickable':''}" ${multi?`data-toggle-prod="${p.id}"`:''}>
+      <td>${multi?`<button type="button" class="icon-btn chevron-btn${expanded?' is-open':''}" data-toggle-btn="${p.id}">${ic('arrow','thumb-icon')}</button>`:''}</td>
+      <td class="mono">${p.kod}</td>
+      <td>${p.kategori||'—'}</td>
+      <td>${multi?`${p.kod}<span class="variant-count-badge">${variants.length} variante</span>`:(first.emer||'—')}</td>
+      <td>${multi?'—':(first.masa||'—')}</td>
+      <td>${p.njesia}</td>
+      <td class="num">${multi?'—':fmt(first.cmimiBlerje)}</td>
+      <td class="num">${multi?'—':fmt(first.cmimiShitje)}</td>
+      <td class="num" style="font-weight:800;color:${here==='madhe'?'var(--indigo)':'var(--terra)'};background:${here==='madhe'?'#eef1f8':'#faf1ea'};">${sumHere}</td>
+      <td class="num" style="color:var(--ink-soft);">${sumOther}</td>
+      <td><button class="icon-btn" data-edit-prod="${p.id}" style="background:#eef1f8;color:var(--indigo)">${ic('edit','thumb-icon')}</button>
+          <button class="icon-btn" data-del-prod="${p.id}">${ic('trash','thumb-icon')}</button></td>
+    </tr>`;
+
+  if(!multi) return mainRow;
+
+  const drawerRow = `
+    <tr class="prod-drawer-row">
+      <td colspan="11">
+        <div class="prod-drawer${expanded?' is-open':''}" data-drawer-for="${p.id}">
+          <div class="prod-drawer-inner">
+            <table><tbody>
+              ${variants.map(v=>`
+              <tr>
+                <td style="width:30px;"></td>
+                <td class="mono" style="color:var(--ink-soft);">${p.kod}</td>
+                <td></td>
+                <td class="variant-subname">↳ ${v.emer}</td>
+                <td>${v.masa||'—'}</td>
+                <td>${p.njesia}</td>
+                <td class="num">${fmt(v.cmimiBlerje)}</td>
+                <td class="num">${fmt(v.cmimiShitje)}</td>
+                <td class="num" style="font-weight:700;color:${here==='madhe'?'var(--indigo)':'var(--terra)'};">${stockOf(here,v.id)}</td>
+                <td class="num" style="color:var(--ink-soft);">${stockOf(other,v.id)}</td>
+                <td></td>
+              </tr>`).join('')}
+            </tbody></table>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+
+  return mainRow + drawerRow;
 }
 function variantRowHtml(v, idx, sysLbl, stockVal){
   return `<div class="variant-row" data-variant-row="${idx}" data-vid="${v.id}">
@@ -789,20 +835,41 @@ function productForm(p){
     </form>
   `;
 }
+function toggleProdExpanded(id){
+  if(expandedProdIds.has(id)) expandedProdIds.delete(id); else expandedProdIds.add(id);
+  const drawer = document.querySelector(`[data-drawer-for="${id}"]`);
+  const btn = document.querySelector(`[data-toggle-btn="${id}"]`);
+  if(drawer) drawer.classList.toggle('is-open', expandedProdIds.has(id));
+  if(btn) btn.classList.toggle('is-open', expandedProdIds.has(id));
+}
 function wireProdukte(){
   document.getElementById('btn-new-prod').onclick = ()=>{
     openModal(productForm(null), true);
     bindProdForm(null);
   };
+  document.querySelectorAll('[data-toggle-prod]').forEach(row=>{
+    row.onclick = (e)=>{
+      if(e.target.closest('[data-edit-prod],[data-del-prod],[data-toggle-btn]')) return;
+      toggleProdExpanded(row.dataset.toggleProd);
+    };
+  });
+  document.querySelectorAll('[data-toggle-btn]').forEach(btn=>{
+    btn.onclick = (e)=>{
+      e.stopPropagation();
+      toggleProdExpanded(btn.dataset.toggleBtn);
+    };
+  });
   document.querySelectorAll('[data-edit-prod]').forEach(b=>{
-    b.onclick = ()=>{
+    b.onclick = (e)=>{
+      e.stopPropagation();
       const p = prodById(b.dataset.editProd);
       openModal(productForm(p), true);
       bindProdForm(p);
     };
   });
   document.querySelectorAll('[data-del-prod]').forEach(b=>{
-    b.onclick = async ()=>{
+    b.onclick = async (e)=>{
+      e.stopPropagation();
       if(!confirm('Fshi këtë produkt (me të gjitha variantet)? Kjo nuk ndikon te lëvizjet e mëparshme.')) return;
       state.products = state.products.filter(p=>p.id!==b.dataset.delProd);
       await refresh();
