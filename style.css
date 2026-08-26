@@ -285,6 +285,11 @@ input.input-danger{border-color:var(--danger);background:var(--danger-bg);}
 .sys-card-sub{font-size:13.5px;color:var(--ink-soft);line-height:1.5;}
 .nav-badge{background:var(--terra);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:700;margin-left:3px;vertical-align:2px;display:inline-block;}
 .nav-badge-danger{background:var(--danger);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:700;margin-left:3px;vertical-align:2px;display:inline-block;}
+@keyframes blink-blue{
+  0%,100%{opacity:1;}
+  50%{opacity:.2;}
+}
+.nav-badge-info{background:var(--indigo);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:700;margin-left:3px;vertical-align:2px;display:inline-block;animation:blink-blue 1s steps(1,end) infinite;}
 
 /* ---------- SYSTEM-SPECIFIC THEME (so Dyqan vs Magazina are visually unmistakable) ---------- */
 #app.sys-dyqan .topbar{background:var(--terra);box-shadow:0 2px 10px rgba(192,86,59,.28);}
