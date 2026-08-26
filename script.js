@@ -418,7 +418,7 @@ function navLabel(n){
   }
   if(n.id === `njoftime-${currentSystem}`){
     const cnt = njoftimeUnread[currentSystem]||0;
-    if(cnt>0) return `${n.label} <span class="nav-badge-danger">${cnt}</span>`;
+    if(cnt>0) return `${n.label} <span class="nav-badge-info">${cnt}</span>`;
   }
   if(n.id === 'debitore'){
     const cnt = debtorsCount();
