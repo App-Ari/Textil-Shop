@@ -40,6 +40,7 @@ function defaultState(){
     customers: [],
     users: [],
     stock: { madhe:{}, dyqan:{} },
+    stockLots: { madhe:{}, dyqan:{} },
     purchases: [],
     transfers: [],
     sales: [],
@@ -105,6 +106,9 @@ function migrateState(){
   if(!state.stock) { state.stock = { madhe:{}, dyqan:{} }; changed = true; }
   if(!state.stock.madhe){ state.stock.madhe = {}; changed = true; }
   if(!state.stock.dyqan){ state.stock.dyqan = state.stock.vogel_old_dyqan_placeholder || {}; changed = true; }
+  if(!state.stockLots) { state.stockLots = { madhe:{}, dyqan:{} }; changed = true; }
+  if(!state.stockLots.madhe){ state.stockLots.madhe = {}; changed = true; }
+  if(!state.stockLots.dyqan){ state.stockLots.dyqan = {}; changed = true; }
   // fold legacy "vogel" bucket (old 3rd warehouse) into dyqan
   if(state.stock.vogel){
     Object.keys(state.stock.vogel).forEach(pid=>{
@@ -227,8 +231,70 @@ function productLabel(p){
   return lbl;
 }
 function stockOf(mag, pid){ return (state.stock[mag] && state.stock[mag][pid]) || 0; }
+/* ---- Lote/Rrotuj: sasi të veçanta nën të njëjtin kod produkti (opsionale, p.multiLot) ---- */
+function lotsOf(mag, pid){
+  state.stockLots = state.stockLots || {madhe:{},dyqan:{}};
+  state.stockLots[mag] = state.stockLots[mag] || {};
+  return state.stockLots[mag][pid] || null;
+}
+function recomputeStockFromLots(mag, pid){
+  const lots = state.stockLots[mag] && state.stockLots[mag][pid];
+  if(!lots) return;
+  const sum = lots.reduce((a,l)=>a+(l.sasia||0),0);
+  if(!state.stock[mag]) state.stock[mag]={};
+  state.stock[mag][pid] = Math.round(sum*1000)/1000;
+}
+/* Zëvendëson plotësisht listën e loteve për një produkt/sistem (përdoret nga formulari i produktit). */
+function setLots(mag, pid, lots){
+  state.stockLots = state.stockLots || {madhe:{},dyqan:{}};
+  state.stockLots[mag] = state.stockLots[mag] || {};
+  state.stockLots[mag][pid] = lots;
+  recomputeStockFromLots(mag, pid);
+}
+/* Fshin gjurmën e loteve për një produkt/sistem (kur produkti kthehet nga "me lote" te "stok i thjeshtë"). */
+function clearLots(mag, pid){
+  if(state.stockLots && state.stockLots[mag]) delete state.stockLots[mag][pid];
+}
+/* Heq lote specifike (me ID) nga një sistem — përdoret kur dërgohet një Transferim me lote të zgjedhura. */
+function moveLotsOut(mag, pid, lotsToRemove){
+  state.stockLots = state.stockLots || {madhe:{},dyqan:{}};
+  state.stockLots[mag] = state.stockLots[mag] || {};
+  const lots = state.stockLots[mag][pid] || [];
+  const removeIds = new Set(lotsToRemove.map(l=>l.id));
+  state.stockLots[mag][pid] = lots.filter(l=>!removeIds.has(l.id));
+  recomputeStockFromLots(mag, pid);
+}
+/* Shton lote specifike (me sasitë e tyre origjinale) te një sistem — përdoret kur pranohet/kthehet një Transferim me lote. */
+function addLotsIn(mag, pid, lotsToAdd){
+  state.stockLots = state.stockLots || {madhe:{},dyqan:{}};
+  state.stockLots[mag] = state.stockLots[mag] || {};
+  const existing = state.stockLots[mag][pid] || (state.stock[mag] && state.stock[mag][pid] ? [{id:uid(), sasia: state.stock[mag][pid]}] : []);
+  lotsToAdd.forEach(l=> existing.push({id: uid(), sasia: l.sasia}));
+  state.stockLots[mag][pid] = existing;
+  recomputeStockFromLots(mag, pid);
+}
 function addStock(mag, pid, qty){
   if(!state.stock[mag]) state.stock[mag]={};
+  const p = prodById(pid);
+  if(p && p.multiLot){
+    state.stockLots = state.stockLots || {madhe:{},dyqan:{}};
+    state.stockLots[mag] = state.stockLots[mag] || {};
+    let lots = state.stockLots[mag][pid];
+    if(!lots){ lots = state.stock[mag][pid] ? [{id:uid(), sasia: state.stock[mag][pid]}] : []; state.stockLots[mag][pid] = lots; }
+    if(qty > 0){
+      lots.push({id: uid(), sasia: Math.round(qty*1000)/1000});
+    } else if(qty < 0){
+      let remaining = -qty;
+      for(let i=0; i<lots.length && remaining>0.0000001; i++){
+        const take = Math.min(lots[i].sasia, remaining);
+        lots[i].sasia = Math.round((lots[i].sasia - take)*1000)/1000;
+        remaining = Math.round((remaining-take)*1000)/1000;
+      }
+      state.stockLots[mag][pid] = lots.filter(l=>l.sasia > 0.0000001);
+    }
+    recomputeStockFromLots(mag, pid);
+    return;
+  }
   state.stock[mag][pid] = Math.round(((state.stock[mag][pid]||0) + qty) * 1000)/1000;
 }
 function custBalance(id){
@@ -794,7 +860,22 @@ function productForm(p){
       <div class="lock-badge" style="background:${currentSystem==='madhe'?'#eef1f8':'#faf1ea'};color:${currentSystem==='madhe'?'var(--indigo)':'var(--terra)'};margin-bottom:10px;">
         ${ic(currentSystem==='madhe'?'madhe':'vogel2','thumb-icon')} Stoku i vendosur më poshtë do të shtohet vetëm te<b style="color:#000;font-style:italic;margin-left:4px;">${sysLbl}</b>. Për ta pasur edhe te ${sysLabel(otherSystem(currentSystem))}, duhet një Transferim i pranuar nga ana tjetër.
       </div>
-      <div class="field"><label>Stok Total <span class="unit-badge">— ${sysLbl}</span></label><input type="number" step="0.01" name="stok" value="${stockVal}"></div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;">
+          <input type="checkbox" name="multiLot" id="multiLot-check" ${base.multiLot?'checked':''} style="width:auto;">
+          Produkt me Lote/Rrotuj (disa sasi të veçanta nën të njëjtin kod)
+        </label>
+        <p class="hint" style="margin-top:2px;">P.sh. e njëjta cope, por të ardhura në rrotuj me metra të ndryshëm (22, 25, 26...). Stoku total llogaritet vetë si shumë e tyre.</p>
+      </div>
+      <div id="stok-simple-wrap" style="${base.multiLot?'display:none;':''}">
+        <div class="field"><label>Stok Total <span class="unit-badge">— ${sysLbl}</span></label><input type="number" step="0.01" name="stok" id="stok-simple-input" value="${stockVal}"></div>
+      </div>
+      <div id="stok-lots-wrap" style="${base.multiLot?'':'display:none;'}">
+        <label>Lotet/Rrotujt <span class="unit-badge">— ${sysLbl}</span></label>
+        <div id="lots-list"></div>
+        <button type="button" class="btn btn-ghost btn-sm" id="lots-addbtn">${ic('plus','thumb-icon')}Shto Lot/Rrotull</button>
+        <p class="hint" id="lots-total-hint"></p>
+      </div>
       <hr class="stitch">
       <div style="display:flex;justify-content:flex-end;gap:8px;">
         <button type="button" class="btn btn-ghost" id="m-cancel">Anulo</button>
@@ -850,6 +931,55 @@ function bindProdForm(existing){
     njesiaSelect.value = val;
     prevNjesia = val;
   };
+  /* ---- Lote/Rrotuj editor ---- */
+  const multiLotCheck = document.getElementById('multiLot-check');
+  const simpleWrap = document.getElementById('stok-simple-wrap');
+  const lotsWrap = document.getElementById('stok-lots-wrap');
+  const lotsListEl = document.getElementById('lots-list');
+  const lotsTotalHint = document.getElementById('lots-total-hint');
+  const initialStockVal = existing ? stockOf(currentSystem, existing.id) : 0;
+  let lotRows = (existing && lotsOf(currentSystem, existing.id))
+    ? lotsOf(currentSystem, existing.id).map(l=>({id:l.id, sasia:l.sasia}))
+    : (initialStockVal ? [{id:uid(), sasia:initialStockVal}] : []);
+  if(lotRows.length===0) lotRows = [{id:uid(), sasia:''}];
+  function updateLotsTotalHint(){
+    const total = lotRows.reduce((a,l)=>a+(parseFloat(l.sasia)||0),0);
+    lotsTotalHint.textContent = `Stoku total (shumë e loteve) — ${sysLabel(currentSystem)}: ${Math.round(total*1000)/1000}`;
+  }
+  function renderLotsList(){
+    const njesiaVal = document.getElementById('njesia-select').value;
+    lotsListEl.innerHTML = lotRows.map((l,i)=>`
+      <div class="lot-row" data-lot-row="${l.id}">
+        <div class="field"><label>Sasia e Lotit ${i+1} <span class="unit-badge">${njesiaVal||''}</span></label><input type="number" step="0.01" data-lot-sasia value="${l.sasia}"></div>
+        <button type="button" class="icon-btn" data-lot-remove="${l.id}" title="Hiq këtë lot">${ic('trash','thumb-icon')}</button>
+      </div>
+    `).join('');
+    lotsListEl.querySelectorAll('[data-lot-sasia]').forEach((inp,i)=>{
+      inp.oninput = ()=>{ lotRows[i].sasia = parseFloat(inp.value)||0; updateLotsTotalHint(); };
+    });
+    lotsListEl.querySelectorAll('[data-lot-remove]').forEach(btn=>{
+      btn.onclick = ()=>{
+        if(lotRows.length<=1) return;
+        lotRows = lotRows.filter(l=>l.id!==btn.dataset.lotRemove);
+        renderLotsList();
+        updateLotsTotalHint();
+      };
+    });
+    updateLotsTotalHint();
+  }
+  document.getElementById('lots-addbtn').onclick = ()=>{ lotRows.push({id:uid(), sasia:''}); renderLotsList(); };
+  multiLotCheck.onchange = ()=>{
+    const on = multiLotCheck.checked;
+    simpleWrap.style.display = on ? 'none' : '';
+    lotsWrap.style.display = on ? '' : 'none';
+    if(on && lotRows.every(l=>!parseFloat(l.sasia))){
+      const simpleVal = parseFloat(document.getElementById('stok-simple-input').value)||0;
+      if(simpleVal) lotRows[0].sasia = simpleVal;
+      renderLotsList();
+    }
+  };
+  renderLotsList();
+
   document.getElementById('prod-form').onsubmit = async (e)=>{
     e.preventDefault();
     const f = new FormData(e.target);
@@ -862,14 +992,23 @@ function bindProdForm(existing){
       minStok: parseFloat(f.get('minStok'))||0,
       cmimiBlerje: parseFloat(f.get('cmimiBlerje'))||0,
       cmimiShitje: parseFloat(f.get('cmimiShitje'))||0,
+      multiLot: multiLotCheck.checked,
     };
     if(!data.kod){ alert('Shkruaj kodin e produktit.'); return; }
-    const newStock = parseFloat(f.get('stok'))||0;
     let productId;
     if(existing){ productId = existing.id; Object.assign(existing, data); }
     else { productId = uid(); data.id = productId; state.products.push(data); }
-    const diff = newStock - stockOf(currentSystem, productId);
-    if(diff !== 0) addStock(currentSystem, productId, diff);
+    if(multiLotCheck.checked){
+      const cleanLots = lotRows
+        .map(l=>({id:l.id, sasia: Math.round((parseFloat(l.sasia)||0)*1000)/1000}))
+        .filter(l=>l.sasia>0);
+      setLots(currentSystem, productId, cleanLots);
+    } else {
+      clearLots(currentSystem, productId);
+      const newStock = parseFloat(f.get('stok'))||0;
+      const diff = newStock - stockOf(currentSystem, productId);
+      if(diff !== 0) addStock(currentSystem, productId, diff);
+    }
     closeModal();
     await refresh();
   };
@@ -907,7 +1046,9 @@ function viewStok(sys){
               ? '<span class="tag tag-transfer">Në transferim</span>'
               : `<span class="tag tag-instock">🟢 Ndodhet te ${sysLabel(sys)} — ${q} ${p.njesia}</span>`));
         const transferCell = transferuar>0 ? `<span class="qty-transfer">− ${transferuar} ${p.njesia}</span>` : '<span style="color:var(--ink-soft);">—</span>';
-        return `<tr class="${rowClass}"><td class="mono">${p.kod}</td><td>${p.kategori?p.kategori+' — ':''}${p.emri||'—'}</td><td>${p.masa||'—'}</td><td>${p.njesia}</td><td class="num ${qtyClass}">${q}</td><td class="num">${transferCell}</td><td class="num">${fmt(q*p.cmimiBlerje)}</td><td>${tagHtml}</td></tr>`;
+        const lots = p.multiLot ? lotsOf(sys, p.id) : null;
+        const lotBreakdown = (lots && lots.length>1) ? `<div class="lot-breakdown">(${lots.map(l=>l.sasia).join(' + ')})</div>` : '';
+        return `<tr class="${rowClass}"><td class="mono">${p.kod}</td><td>${p.kategori?p.kategori+' — ':''}${p.emri||'—'}</td><td>${p.masa||'—'}</td><td>${p.njesia}</td><td class="num ${qtyClass}">${q}${lotBreakdown}</td><td class="num">${transferCell}</td><td class="num">${fmt(q*p.cmimiBlerje)}</td><td>${tagHtml}</td></tr>`;
       }).join('');
   return `
     <div class="view-head">
@@ -941,11 +1082,11 @@ function wireStokDyqan(){}
 function productSearchDatalist(){
   return `<datalist id="product-search-list">${state.products.map(p=>`<option value="${productLabel(p)}"></option>`).join('')}</datalist>`;
 }
-function itemsPickerRows(existingItems, withPrice){
+function itemsPickerRows(existingItems, withPrice, lotMode){
   const items = existingItems && existingItems.length ? existingItems : [{productId:'',sasia:'',cmimi:''}];
-  return items.map((it,idx)=>itemRowHtml(it, idx, withPrice)).join('');
+  return items.map((it,idx)=>itemRowHtml(it, idx, withPrice, lotMode)).join('');
 }
-function itemRowHtml(it, idx, withPrice){
+function itemRowHtml(it, idx, withPrice, lotMode){
   const ref = it.productId ? findProduct(it.productId) : null;
   const labelVal = ref ? productLabel(ref) : '';
   const unitVal = ref ? ref.njesia : '';
@@ -964,6 +1105,7 @@ function itemRowHtml(it, idx, withPrice){
     ${withPrice?`<div><label>Çmimi</label><input type="number" step="0.01" data-f="cmimi" value="${it.cmimi||''}"></div>`:''}
     ${withPrice?`<div><label>Vlera e rreshtit</label><div class="row-total mono" data-f="row-total">${fmt(rreshtiTotali)}</div></div>`:''}
     <button type="button" class="icon-btn" data-remove-item>${ic('trash','thumb-icon')}</button>
+    ${lotMode?`<div class="lot-picker" data-f="lot-picker"></div>`:''}
   </div>`;
 }
 /* Sums sasia for a given productId across all rows in the container (used to catch the
@@ -985,7 +1127,7 @@ function aggregateByProduct(items){
   items.forEach(it=>{ map[it.productId] = (map[it.productId]||0) + it.sasia; });
   return map;
 }
-function wireItemsPicker(containerId, withPrice, priceKind, stockCheckSys, tvshCheckboxId){
+function wireItemsPicker(containerId, withPrice, priceKind, stockCheckSys, tvshCheckboxId, lotMode){
   const cont = document.getElementById(containerId);
   function updateRowTotal(row){
     if(!withPrice) return;
@@ -1074,6 +1216,33 @@ function wireItemsPicker(containerId, withPrice, priceKind, stockCheckSys, tvshC
     if(!stockCheckSys) return;
     cont.querySelectorAll('[data-item-row]').forEach(updateStockInfo);
   }
+  function renderLotPicker(row, match){
+    const pickerEl = row.querySelector('[data-f="lot-picker"]');
+    const sasiaEl = row.querySelector('[data-f="sasia"]');
+    if(!pickerEl) return;
+    const lots = (lotMode && stockCheckSys && match && match.multiLot) ? lotsOf(stockCheckSys, match.id) : null;
+    if(!lots || lots.length===0){
+      pickerEl.innerHTML = '';
+      row.dataset.selectedLots = '';
+      if(sasiaEl){ sasiaEl.readOnly = false; sasiaEl.classList.remove('lot-locked'); }
+      return;
+    }
+    pickerEl.innerHTML = `<label class="lot-picker-label">Zgjidh lotin/lotet për transferim:</label>` +
+      lots.map(l=>`<label class="lot-check-item"><input type="checkbox" data-lot-check value="${l.id}"> ${l.sasia} ${match.njesia||''}</label>`).join('');
+    if(sasiaEl){ sasiaEl.readOnly = true; sasiaEl.classList.add('lot-locked'); sasiaEl.value = ''; }
+    row.dataset.selectedLots = '';
+    pickerEl.querySelectorAll('[data-lot-check]').forEach(ck=>{
+      ck.onchange = ()=>{
+        const checked = [...pickerEl.querySelectorAll('[data-lot-check]:checked')].map(c=>c.value);
+        const chosenLots = lots.filter(l=>checked.includes(l.id));
+        const sum = chosenLots.reduce((a,l)=>a+l.sasia,0);
+        if(sasiaEl) sasiaEl.value = sum || '';
+        row.dataset.selectedLots = JSON.stringify(chosenLots);
+        updateStockInfo(row);
+        updateRowTotal(row); updateGrandTotal();
+      };
+    });
+  }
   function attachSearch(row){
     const inp = row.querySelector('[data-f="search"]');
     const hidden = row.querySelector('[data-f="productId"]');
@@ -1095,10 +1264,15 @@ function wireItemsPicker(containerId, withPrice, priceKind, stockCheckSys, tvshC
         hidden.value = '';
         if(unitEl) unitEl.textContent = '';
       }
+      renderLotPicker(row, match);
       refreshAllStockInfo();
       updateRowTotal(row); updateGrandTotal();
     });
     if(sasiaEl) sasiaEl.addEventListener('input', refreshAllStockInfo);
+    if(lotMode){
+      const existingMatch = hidden.value ? findProduct(hidden.value) : null;
+      renderLotPicker(row, existingMatch);
+    }
     updateStockInfo(row);
   }
   function wireRemove(){
@@ -1119,7 +1293,7 @@ function wireItemsPicker(containerId, withPrice, priceKind, stockCheckSys, tvshC
   function addRow(){
     const idx = cont.querySelectorAll('[data-item-row]').length;
     const div = document.createElement('div');
-    div.innerHTML = itemRowHtml({}, idx, withPrice);
+    div.innerHTML = itemRowHtml({}, idx, withPrice, lotMode);
     cont.insertBefore(div.firstElementChild, document.getElementById(containerId+'-addbtn'));
     wireRemove();
     attachSearch(cont.querySelectorAll('[data-item-row]')[idx]);
@@ -1147,9 +1321,17 @@ function readItems(containerId){
     const cmimi = cmimiEl ? (parseFloat(cmimiEl.value)||0) : undefined;
     const njesiaEl = r.querySelector('[data-f="njesia"]');
     if(!pid || sasia<=0) return;
-    if(cmimiEl){ items.push({productId:pid,sasia,cmimi}); }
-    else if(njesiaEl){ items.push({productId:pid,sasia,njesia:njesiaEl.value}); }
-    else { items.push({productId:pid,sasia}); }
+    let item;
+    if(cmimiEl){ item = {productId:pid,sasia,cmimi}; }
+    else if(njesiaEl){ item = {productId:pid,sasia,njesia:njesiaEl.value}; }
+    else { item = {productId:pid,sasia}; }
+    if(r.dataset.selectedLots){
+      try{
+        const lots = JSON.parse(r.dataset.selectedLots);
+        if(lots && lots.length) item.lots = lots;
+      }catch(e){}
+    }
+    items.push(item);
   });
   return items;
 }
@@ -1175,11 +1357,11 @@ function transferForm(sourceMag, destOptions, titleText){
       <hr class="stitch">
       <label>Artikujt për transferim</label>
       <div id="transfer-items">
-        ${itemsPickerRows(null, false)}
+        ${itemsPickerRows(null, false, true)}
         <button type="button" class="btn btn-ghost btn-sm" id="transfer-items-addbtn">${ic('plus','thumb-icon')}Shto Artikull</button>
       </div>
       ${productSearchDatalist()}
-      <p class="hint">Sasia s'mund të kalojë gjendjen aktuale. Malli zbritet menjëherë nga stoku yt dhe pret <b>pranim</b> nga ana tjetër përpara se të hyjë në stokun e saj.</p>
+      <p class="hint">Sasia s'mund të kalojë gjendjen aktuale. Malli zbritet menjëherë nga stoku yt dhe pret <b>pranim</b> nga ana tjetër përpara se të hyjë në stokun e saj. Për produktet <b>me Lote/Rrotuj</b>, zgjidh me checkbox saktësisht cilin lot/rrotull dëshiron të transferosh.</p>
       <hr class="stitch">
       <div style="display:flex;justify-content:flex-end;gap:8px;">
         <button type="button" class="btn btn-ghost" id="m-cancel">Anulo</button>
@@ -1269,7 +1451,7 @@ function wireTransfer(sys){
     document.getElementById('m-close').onclick = closeModal;
     document.getElementById('m-cancel').onclick = closeModal;
     if(!state.products.some(p=>stockOf(sys,p.id)>0)) return;
-    wireItemsPicker('transfer-items', false, null, sys);
+    wireItemsPicker('transfer-items', false, null, sys, null, true);
     document.getElementById('transfer-form').onsubmit = async (e)=>{
       e.preventDefault();
       const f = new FormData(e.target);
@@ -1285,7 +1467,10 @@ function wireTransfer(sys){
       }
       const rec = {id:uid(), nr:nextNr('transferim','TR-'), data:f.get('data'), items, nga:sys, drejtBy:other, status:'ne_pritje'};
       state.transfers.push(rec);
-      items.forEach(it=>addStock(sys, it.productId, -it.sasia));
+      items.forEach(it=>{
+        if(it.lots && it.lots.length) moveLotsOut(sys, it.productId, it.lots);
+        else addStock(sys, it.productId, -it.sasia);
+      });
       closeModal();
       await refresh();
     };
@@ -1298,7 +1483,10 @@ function wireTransfer(sys){
       document.getElementById('m-close').onclick = closeModal;
       document.getElementById('m-cancel').onclick = closeModal;
       document.getElementById('btn-confirm-accept').onclick = async ()=>{
-        t.items.forEach(it=>addStock(t.drejtBy, it.productId, it.sasia));
+        t.items.forEach(it=>{
+          if(it.lots && it.lots.length) addLotsIn(t.drejtBy, it.productId, it.lots);
+          else addStock(t.drejtBy, it.productId, it.sasia);
+        });
         t.status = 'pranuar';
         t.dataPranimit = today();
         closeModal();
@@ -1311,7 +1499,10 @@ function wireTransfer(sys){
       if(!confirm('Refuzo këtë transferim? Malli do t\'i kthehet dërguesit.')) return;
       const t = state.transfers.find(x=>x.id===b.dataset.rejectTransfer);
       if(!t) return;
-      t.items.forEach(it=>addStock(t.nga, it.productId, it.sasia));
+      t.items.forEach(it=>{
+        if(it.lots && it.lots.length) addLotsIn(t.nga, it.productId, it.lots);
+        else addStock(t.nga, it.productId, it.sasia);
+      });
       t.status = 'refuzuar';
       t.dataPranimit = today();
       await refresh();
@@ -1322,7 +1513,10 @@ function wireTransfer(sys){
       if(!confirm('Anulo këtë transferim? Malli do të kthehet automatikisht te stoku yt dhe transferimi nuk do të presë më pranim.')) return;
       const t = state.transfers.find(x=>x.id===b.dataset.cancelTransfer);
       if(!t) return;
-      t.items.forEach(it=>addStock(t.nga, it.productId, it.sasia));
+      t.items.forEach(it=>{
+        if(it.lots && it.lots.length) addLotsIn(t.nga, it.productId, it.lots);
+        else addStock(t.nga, it.productId, it.sasia);
+      });
       t.status = 'anuluar';
       t.dataAnulimit = today();
       await refresh();
