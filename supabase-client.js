@@ -245,3 +245,7 @@ async function fetchUnreadCount(sys){
   if(error){ console.error('fetchUnreadCount', error); return 0; }
   return count||0;
 }
+async function clearMessages(sysA, sysB){
+  const { error } = await sb.from('messages').delete().or(`and(nga.eq.${sysA},drejt.eq.${sysB}),and(nga.eq.${sysB},drejt.eq.${sysA})`);
+  if(error){ console.error('clearMessages', error); throw error; }
+}
