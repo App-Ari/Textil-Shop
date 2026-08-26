@@ -323,3 +323,23 @@ input.input-danger{border-color:var(--danger);background:var(--danger-bg);}
 #app.sys-dyqan .sys-pill{background:rgba(255,255,255,.18);color:#fff;}
 #app.sys-madhe .sys-pill{background:rgba(255,255,255,.15);color:#fff;}
 .sys-pill{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:3px 9px;border-radius:20px;margin-left:8px;}
+
+/* --- Grupimi i Produkteve me Variante (efekti "ashensor") --- */
+.prod-group-row.is-clickable{cursor:pointer;}
+.prod-group-row.is-clickable:hover{background:#f4f1e8;}
+.chevron-btn{background:#f1efe8;color:var(--ink-soft);border:none;border-radius:7px;width:28px;height:28px;
+  display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .25s ease,background .2s ease,color .2s ease;}
+.chevron-btn svg{width:13px;height:13px;}
+.chevron-btn.is-open{transform:rotate(90deg);background:var(--indigo);color:#fff;}
+.chevron-btn.is-open svg{stroke:#fff;}
+.variant-count-badge{display:inline-block;background:var(--terra-soft);color:var(--terra);font-size:10.5px;
+  font-weight:800;border-radius:20px;padding:2px 9px;margin-left:8px;letter-spacing:.03em;}
+.prod-drawer-row td{padding:0;border-bottom:none;}
+.prod-drawer{max-height:0;overflow:hidden;transition:max-height .34s cubic-bezier(.4,0,.2,1);background:#faf8f2;}
+.prod-drawer.is-open{max-height:2000px;border-bottom:1px solid var(--line);}
+.prod-drawer-inner{padding:2px 0;}
+.prod-drawer table{width:100%;}
+.prod-drawer td{border-bottom:1px dashed var(--line);}
+.prod-drawer tr:last-child td{border-bottom:none;}
+.prod-drawer tbody tr:hover{background:#f1efe4;}
+.variant-subname{padding-left:8px;color:var(--ink);font-weight:600;position:relative;}
