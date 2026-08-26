@@ -946,7 +946,9 @@ function viewStok(sys){
             ? `<span class="tag tag-elsewhere">🔵 Ndodhet te ${otherLbl} — ${qOther} ${p.njesia}</span>`
             : (isLow
               ? '<span class="tag tag-bad">Stok i ulët</span>'
-              : (transferuar>0 ? '<span class="tag tag-transfer">Në transferim</span>' : ''));
+              : (transferuar>0
+                ? '<span class="tag tag-transfer">Në transferim</span>'
+                : `<span class="tag tag-instock">🟢 Ndodhet te ${sysLabel(sys)} — ${q} ${p.njesia}</span>`));
           const transferCell = transferuar>0 ? `<span class="qty-transfer">− ${transferuar} ${p.njesia}</span>` : '<span style="color:var(--ink-soft);">—</span>';
           return `<tr class="${rowClass}"><td class="mono">${p.kod}</td><td>${p.kategori?p.kategori+' — ':''}${v.emer}</td><td>${v.masa||'—'}</td><td>${p.njesia}</td><td class="num ${qtyClass}">${q}</td><td class="num">${transferCell}</td><td class="num">${fmt(q*v.cmimiBlerje)}</td><td>${tagHtml}</td></tr>`;
         }).join('');
@@ -977,7 +979,7 @@ function viewStok(sys){
       <table><thead><tr><th>Kodi</th><th>Produkti / Varioni</th><th>Masa</th><th>Njësia</th><th class="num">Sasia</th><th class="num">Në Transferim</th><th class="num">Vlera (blerje)</th><th></th></tr></thead><tbody>
       ${bodyHtml}
       </tbody></table>
-      <p class="hint">🔴 Rreshti i kuq = stoku është nën minimum (alarm). 🔵 Rreshti blu = 0 këtu, por gjendet te ${otherLbl}. 🟡 Rreshti i verdhë = ka material të dërguar në transferim, ende në pritje pranimi — sasia në kolonën "Sasia" tregon çfarë <b>ka mbetur</b> pas atij transferimi. ⚫ Rreshti "Totali" mbledh bashkë të gjitha varionet e të njëjtit kod.</p>
+      <p class="hint">🔴 Rreshti i kuq = stoku është nën minimum (alarm). 🔵 Etiketa blu = 0 këtu, por gjendet te ${otherLbl}. 🟢 Etiketa jeshile = ka gjendje normale këtu te ${sysLabel(sys)}. 🟡 Rreshti i verdhë = ka material të dërguar në transferim, ende në pritje pranimi — sasia në kolonën "Sasia" tregon çfarë <b>ka mbetur</b> pas atij transferimi. ⚫ Rreshti "Totali" mbledh bashkë të gjitha varionet e të njëjtit kod.</p>
     </div>
   `;
 }
