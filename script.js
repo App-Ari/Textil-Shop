@@ -1856,9 +1856,11 @@ function njoftimeTimeLabel(iso){
 }
 function viewNjoftime(sys){
   const list = [...njoftimeMessages].reverse(); // më i vjetri lart, më i riu poshtë
+  const isAdmin = !currentLoggedUser || currentLoggedUser.roli === 'Admin';
   return `
     <div class="view-head">
       <div><div class="view-eyebrow">Komunikim</div><h1 class="view-title">Njoftime — ${sysLabel(sys)} ↔ ${sysLabel(otherSystem(sys))}</h1></div>
+      ${isAdmin ? `<button class="btn btn-ghost" id="btn-clear-njoftime" style="color:var(--danger);">${ic('trash','thumb-icon')}Fshi Bisedën</button>` : ''}
     </div>
     <div class="card">
       <p class="card-title">Bashkëbisedimi</p>
@@ -1895,6 +1897,19 @@ function wireNjoftime(sys){
     njoftimeOpenedFor = currentView;
     loadNjoftime(sys);
   }
+  const clearBtn = document.getElementById('btn-clear-njoftime');
+  if(clearBtn) clearBtn.onclick = async ()=>{
+    if(!confirm('Të fshihet gjithë biseda mes Dyqanit dhe Magazinës së Madhe? Ky veprim nuk kthehet mbrapsht.')) return;
+    clearBtn.disabled = true;
+    try{
+      await clearMessages('madhe','dyqan');
+      njoftimeMessages = [];
+      renderMain();
+    }catch(err){
+      alert('Fshirja dështoi — kontrollo lidhjen me internetin.');
+      clearBtn.disabled = false;
+    }
+  };
   const form = document.getElementById('njoftime-form');
   if(form) form.onsubmit = async (e)=>{
     e.preventDefault();
