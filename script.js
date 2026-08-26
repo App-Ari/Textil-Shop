@@ -25,6 +25,7 @@ const ICONS = {
   check: `<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>`,
   search: `<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>`,
   ban: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5 5l14 14"/></svg>`,
+  chat: `<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H8l-5 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`,
 };
 function ic(name,cls){return ICONS[name]?ICONS[name].replace('<svg ', `<svg class="${cls||''}" `):'';}
 
@@ -179,6 +180,13 @@ function njesiaOptionsHtml(selected){
     + `<option value="__add_new__">+ Njësi e re…</option>`;
 }
 function custById(id){ return state.customers.find(c=>c.id===id); }
+function saleStatusTag(s){
+  const totali = s.totali||0;
+  const mbetet = s.mbetetFillestar||0;
+  if(mbetet <= 0.001) return {label:'E paguar', cls:'tag-ok'};
+  if(mbetet < totali - 0.001) return {label:'Pjesshëm', cls:'tag-warn'};
+  return {label:'Debitor', cls:'tag-bad'};
+}
 function findCustomerByName(name){
   const n = (name||'').trim().toLowerCase();
   if(!n) return null;
@@ -282,6 +290,7 @@ const NAV_MADHE = [
   {id:'transfer-madhe', label:'Transferime', icon:'arrow'},
   {id:'blerje-madhe', label:'Blerje', icon:'blerje'},
   {id:'kerko-madhe', label:'Kërko Fatura', icon:'search'},
+  {id:'njoftime-madhe', label:'Njoftime', icon:'chat'},
   {id:'perdorues-madhe', label:'Përdorues', icon:'debitore'},
   {id:'config-madhe', label:'Konfigurime', icon:'config'},
 ];
@@ -298,6 +307,7 @@ const NAV_DYQAN = [
   {id:'debitore', label:'Debitorë', icon:'debitore'},
   {id:'bilanc', label:'Bilanc', icon:'bilanc'},
   {id:'xhiro', label:'Xhiro Ditore', icon:'xhiro'},
+  {id:'njoftime-dyqan', label:'Njoftime', icon:'chat'},
   {id:'perdorues-dyqan', label:'Përdorues', icon:'debitore'},
   {id:'config-dyqan', label:'Konfigurime', icon:'config'},
 ];
@@ -320,11 +330,13 @@ function render(){
   const app = document.getElementById('app');
   document.title = `${state.config.markaEmri || 'Fill & Stoff'} — Menaxhim Tekstili`;
   if(!currentSystem){
+    stopNjoftimePolling();
     app.className = '';
     app.innerHTML = renderSystemChooser();
     wireSystemChooser();
     return;
   }
+  startNjoftimePolling();
   const nav = navForRole(currentSystem);
   if(!currentView || !nav.some(n=>n.id===currentView)) currentView = nav[0].id;
   app.className = currentSystem==='madhe' ? 'sys-madhe' : 'sys-dyqan';
@@ -357,6 +369,7 @@ function render(){
   app.querySelectorAll('[data-nav]').forEach(b=>{
     b.onclick = ()=>{
       currentView = b.dataset.nav;
+      njoftimeOpenedFor = null;
       app.querySelectorAll('[data-nav]').forEach(x=>x.classList.toggle('active', x.dataset.nav===currentView));
       renderMain();
     };
@@ -372,6 +385,28 @@ function debtorsCount(){
 function lowStockCount(sys){
   return allVariantRows().filter(({p,v})=>stockOf(sys,v.id) <= (p.minStok||0)).length;
 }
+let njoftimeUnread = {madhe:0, dyqan:0};
+let njoftimePollTimer = null;
+let njoftimePollSystem = null;
+async function refreshNjoftimeBadge(){
+  if(!currentSystem) return;
+  try{
+    njoftimeUnread[currentSystem] = await fetchUnreadCount(currentSystem);
+  }catch(e){ return; }
+  const btn = document.querySelector(`[data-nav="njoftime-${currentSystem}"] span`);
+  if(btn) btn.innerHTML = navLabel({id:`njoftime-${currentSystem}`, label:'Njoftime'});
+}
+function startNjoftimePolling(){
+  if(njoftimePollSystem === currentSystem && njoftimePollTimer) return;
+  if(njoftimePollTimer) clearInterval(njoftimePollTimer);
+  njoftimePollSystem = currentSystem;
+  refreshNjoftimeBadge();
+  njoftimePollTimer = setInterval(refreshNjoftimeBadge, 20000);
+}
+function stopNjoftimePolling(){
+  if(njoftimePollTimer) clearInterval(njoftimePollTimer);
+  njoftimePollTimer = null; njoftimePollSystem = null;
+}
 function navLabel(n){
   if(n.id === `transfer-${currentSystem}`){
     const cnt = pendingIncoming(currentSystem).length;
@@ -379,6 +414,10 @@ function navLabel(n){
   }
   if(n.id === `stok-${currentSystem}`){
     const cnt = lowStockCount(currentSystem);
+    if(cnt>0) return `${n.label} <span class="nav-badge-danger">${cnt}</span>`;
+  }
+  if(n.id === `njoftime-${currentSystem}`){
+    const cnt = njoftimeUnread[currentSystem]||0;
     if(cnt>0) return `${n.label} <span class="nav-badge-danger">${cnt}</span>`;
   }
   if(n.id === 'debitore'){
@@ -397,6 +436,7 @@ function renderMain(){
     'transfer-madhe': ()=>viewTransfer('madhe'),
     'blerje-madhe': ()=>viewBlerje('madhe'),
     'kerko-madhe': ()=>viewKerkoFatura('madhe'),
+    'njoftime-madhe': ()=>viewNjoftime('madhe'),
     'perdorues-madhe': ()=>viewPerdorues('madhe'),
     'config-madhe': viewConfigMadhe,
     'paneli-dyqan': viewPaneliDyqan,
@@ -411,6 +451,7 @@ function renderMain(){
     'debitore': viewDebitore,
     'bilanc': viewBilanc,
     'xhiro': viewXhiro,
+    'njoftime-dyqan': ()=>viewNjoftime('dyqan'),
     'perdorues-dyqan': ()=>viewPerdorues('dyqan'),
     'config-dyqan': viewConfigDyqan,
   };
@@ -425,6 +466,7 @@ function wireCurrentView(){
     'transfer-madhe': ()=>wireTransfer('madhe'),
     'blerje-madhe': ()=>wireBlerje('madhe'),
     'kerko-madhe': ()=>wireKerkoFatura('madhe'),
+    'njoftime-madhe': ()=>wireNjoftime('madhe'),
     'perdorues-madhe': ()=>wirePerdorues('madhe'),
     'config-madhe': wireConfigMadhe,
     'paneli-dyqan': wirePaneliDyqan,
@@ -439,6 +481,7 @@ function wireCurrentView(){
     'debitore': wireDebitore,
     'bilanc': wireBilanc,
     'xhiro': wireXhiro,
+    'njoftime-dyqan': ()=>wireNjoftime('dyqan'),
     'perdorues-dyqan': ()=>wirePerdorues('dyqan'),
     'config-dyqan': wireConfigDyqan,
   };
@@ -592,7 +635,7 @@ function viewPaneliDyqan(){
     <div class="card">
       <p class="card-title">Shitjet e Fundit</p>
       ${lastSales.length? `<table><thead><tr><th>Nr</th><th>Data</th><th>Klienti</th><th>Pagesa</th><th class="num">Totali</th></tr></thead><tbody>
-        ${lastSales.map(s=>`<tr><td class="mono">${s.nr}</td><td>${s.data}</td><td>${s.klientId?custById(s.klientId)?.emri||'—':'Klient rasti'}</td><td><span class="tag ${s.menyraPageses==='cash'?'tag-ok':'tag-warn'}">${s.menyraPageses==='cash'?'Cash':s.menyraPageses==='kredi'?'Debitor':'Pjesshëm'}</span></td><td class="num">${fmt(s.totali)}</td></tr>`).join('')}
+        ${lastSales.map(s=>`<tr><td class="mono">${s.nr}</td><td>${s.data}</td><td>${s.klientId?custById(s.klientId)?.emri||'—':'Klient rasti'}</td><td><span class="tag ${saleStatusTag(s).cls}">${saleStatusTag(s).label}</span></td><td class="num">${fmt(s.totali)}</td></tr>`).join('')}
       </tbody></table>` : `<div class="empty">Nuk ka ende shitje. Fillo nga skeda "Shitje".</div>`}
     </div>
     <div class="card">
@@ -1368,7 +1411,7 @@ function viewShitje(){
       ${rows.length===0?`<tr><td colspan="7"><div class="empty">Ende pa shitje.</div></td></tr>`:
         rows.map(r=>`<tr>
           <td class="mono">${r.nr}</td><td>${r.data}</td><td>${r.klientId?(custById(r.klientId)?.emri||'—'):'Klient rasti'}</td>
-          <td><span class="tag ${r.menyraPageses==='cash'?'tag-ok':r.menyraPageses==='kredi'?'tag-bad':'tag-warn'}">${r.menyraPageses==='cash'?'Cash':r.menyraPageses==='kredi'?'Debitor':'Pjesshëm'}</span></td>
+          <td><span class="tag ${saleStatusTag(r).cls}">${saleStatusTag(r).label}</span></td>
           <td class="num">${fmt(r.totali)}${r.tvshAplikuar?` <span class="tag tag-ok" style="margin-left:4px;">+TVSH</span>`:''}</td><td class="num">${fmt(r.mbetetFillestar)}</td>
           <td style="white-space:nowrap;">
             <button class="btn btn-ghost btn-sm" data-print-sale="${r.id}" data-fmt="pos80">POS80</button>
@@ -1798,6 +1841,78 @@ function buildXhiroReport(from, to, group){
   });
   return Object.keys(map).sort().map(k=>({period:k, ...map[k], bilanc: map[k].hyrje - map[k].dalje}));
 }
+
+/* =====================================================================
+   NJOFTIME — mesazhe/kërkesa mes Dyqanit dhe Magazinës së Madhe
+   ===================================================================== */
+let njoftimeMessages = [];
+let njoftimeLoaded = false;
+let njoftimeOpenedFor = null;
+function njoftimeTimeLabel(iso){
+  try{
+    const d = new Date(iso);
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  }catch(e){ return iso||''; }
+}
+function viewNjoftime(sys){
+  const list = [...njoftimeMessages].reverse(); // më i vjetri lart, më i riu poshtë
+  return `
+    <div class="view-head">
+      <div><div class="view-eyebrow">Komunikim</div><h1 class="view-title">Njoftime — ${sysLabel(sys)} ↔ ${sysLabel(otherSystem(sys))}</h1></div>
+    </div>
+    <div class="card">
+      <p class="card-title">Bashkëbisedimi</p>
+      <div id="njoftime-list" style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto;padding:4px 2px;">
+        ${!njoftimeLoaded ? `<div class="empty">Duke ngarkuar...</div>` :
+          list.length===0 ? `<div class="empty">Ende pa mesazhe. Shkruaj i pari.</div>` :
+          list.map(m=>{
+            const mine = m.nga===sys;
+            return `<div style="align-self:${mine?'flex-end':'flex-start'};max-width:75%;">
+              <div style="font-size:10.5px;color:var(--ink-soft);margin-bottom:2px;text-align:${mine?'right':'left'};">${mine?'Ti':sysLabel(m.nga)} · ${njoftimeTimeLabel(m.created_at)}</div>
+              <div style="background:${mine?'var(--indigo)':'#fbf3de'};color:${mine?'#fff':'#5a4a1a'};padding:8px 12px;border-radius:12px;${mine?'border-bottom-right-radius:3px;':'border-bottom-left-radius:3px;'}font-size:13px;line-height:1.4;white-space:pre-wrap;">${m.teksti}</div>
+            </div>`;
+          }).join('')}
+      </div>
+      <form id="njoftime-form" style="display:flex;gap:8px;margin-top:14px;">
+        <input type="text" id="njoftime-input" placeholder="Shkruaj një njoftim ose kërkesë p.sh. 'Dërgo 20m kadife blu'..." style="flex:1;" autocomplete="off" required>
+        <button type="submit" class="btn btn-terra">Dërgo</button>
+      </form>
+      <p class="hint">Mesazhi shkon te ${sysLabel(otherSystem(sys))} dhe shfaqet me njoftim (badge të kuq) te menyja "Njoftime" e tyre, brenda ~20 sekondave.</p>
+    </div>
+  `;
+}
+async function loadNjoftime(sys){
+  njoftimeLoaded = false;
+  renderMain();
+  njoftimeMessages = (await fetchMessages()).filter(m=>(m.nga===sys && m.drejt===otherSystem(sys)) || (m.nga===otherSystem(sys) && m.drejt===sys));
+  njoftimeLoaded = true;
+  await markMessagesRead(sys);
+  njoftimeUnread[sys] = 0;
+  renderMain();
+}
+function wireNjoftime(sys){
+  if(njoftimeOpenedFor !== currentView){
+    njoftimeOpenedFor = currentView;
+    loadNjoftime(sys);
+  }
+  const form = document.getElementById('njoftime-form');
+  if(form) form.onsubmit = async (e)=>{
+    e.preventDefault();
+    const input = document.getElementById('njoftime-input');
+    const teksti = input.value.trim();
+    if(!teksti) return;
+    input.value = '';
+    input.disabled = true;
+    try{
+      await sendMessage(sys, otherSystem(sys), teksti);
+      njoftimeMessages.push({nga:sys, drejt:otherSystem(sys), teksti, lexuar:true, created_at:new Date().toISOString()});
+      renderMain();
+    }catch(err){
+      alert('Dërgimi dështoi — kontrollo lidhjen me internetin.');
+    }
+  };
+}
+
 function viewXhiro(){
   const dayCash = state.cashMovements.filter(m=>m.data===xhiroDate);
   const hyrje = dayCash.filter(m=>m.lloji==='hyrje').reduce((a,m)=>a+m.shuma,0);
