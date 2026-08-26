@@ -718,7 +718,7 @@ function viewProdukte(){
       <button class="btn btn-terra" id="btn-new-prod">${ic('plus','thumb-icon')}Produkt i Ri</button>
     </div>
     <div class="card">
-      <table><thead><tr>
+      <table class="tbl-produkte"><thead><tr>
         <th>Kodi</th><th>Grupi</th><th>Emri / Varioni</th><th>Masa</th><th>Njësia</th>
         <th class="num">Çm. Blerje</th><th class="num">Çm. Shitje</th>
         <th class="num" style="background:${here==='madhe'?'#eef1f8':'#faf1ea'};">Sasia këtu — ${hereLbl}</th>
@@ -747,7 +747,7 @@ function productGroupRowHtml(p, here, other){
   return `
     <tr class="prod-group-row" data-prod-row="${p.id}">
       <td class="mono">${p.kod}</td>
-      <td>${p.kategori||'—'}</td>
+      <td title="${p.kategori||''}">${p.kategori||'—'}</td>
       <td>${emriCell}</td>
       <td class="cell-masa">${first.masa||'—'}</td>
       <td>${p.njesia}</td>
@@ -755,8 +755,10 @@ function productGroupRowHtml(p, here, other){
       <td class="num cell-cs">${fmt(first.cmimiShitje)}</td>
       <td class="num cell-here" style="font-weight:800;color:${here==='madhe'?'var(--indigo)':'var(--terra)'};background:${here==='madhe'?'#eef1f8':'#faf1ea'};">${stockOf(here,first.id)}</td>
       <td class="num cell-other" style="color:var(--ink-soft);">${stockOf(other,first.id)}</td>
-      <td><button class="icon-btn" data-edit-prod="${p.id}" style="background:#eef1f8;color:var(--indigo)">${ic('edit','thumb-icon')}</button>
-          <button class="icon-btn" data-del-prod="${p.id}">${ic('trash','thumb-icon')}</button></td>
+      <td><div class="prod-actions">
+          <button class="icon-btn" data-edit-prod="${p.id}" style="background:#eef1f8;color:var(--indigo)">${ic('edit','thumb-icon')}</button>
+          <button class="icon-btn" data-del-prod="${p.id}">${ic('trash','thumb-icon')}</button>
+      </div></td>
     </tr>`;
 }
 function variantRowHtml(v, idx, sysLbl, stockVal){
