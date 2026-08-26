@@ -46,13 +46,22 @@ async function saveStateToSupabase(state){
   const productsChain = (async()=>{
     await mirrorTable('products', state.products.map(p=>({
       id:p.id, kod:p.kod, kategori:p.kategori||'', emri:p.emri||'', masa:p.masa||'',
-      njesia:p.njesia, min_stok:p.minStok||0, cmimi_blerje:p.cmimiBlerje||0, cmimi_shitje:p.cmimiShitje||0
+      njesia:p.njesia, min_stok:p.minStok||0, cmimi_blerje:p.cmimiBlerje||0, cmimi_shitje:p.cmimiShitje||0,
+      multi_lot: !!p.multiLot
     })), 'id');
 
     const stockRows = [];
     ['madhe','dyqan'].forEach(mag=>{
+      const lotsForMag = (state.stockLots && state.stockLots[mag]) || {};
       Object.entries(state.stock[mag]||{}).forEach(([productId, sasia])=>{
-        stockRows.push({magazina:mag, product_id:productId, sasia});
+        const lots = lotsForMag[productId];
+        if(lots && lots.length){
+          // Produkt me Lote/Rrotuj: ruaj 1 rresht për çdo lot (të gjitha me të njëjtin product_id/magazina;
+          // mblidhen vetë kur lexohen sërish, s'nevojitet asnjë kolonë shtesë në 'stock').
+          lots.forEach(l=>{ if(l.sasia>0) stockRows.push({magazina:mag, product_id:productId, sasia:l.sasia}); });
+        } else if(sasia){
+          stockRows.push({magazina:mag, product_id:productId, sasia});
+        }
       });
     });
     await sb.from('stock').delete().not('product_id','is',null);
@@ -81,7 +90,7 @@ async function saveStateToSupabase(state){
     })), 'id');
     const transferItems = [];
     state.transfers.forEach(r=>(r.items||[]).forEach(it=>transferItems.push({
-      transfer_id:r.id, product_id:it.productId, sasia:it.sasia
+      transfer_id:r.id, product_id:it.productId, sasia:it.sasia, lots: it.lots || null
     })));
     await sb.from('transfer_items').delete().not('id','is',null);
     if(transferItems.length) await sb.from('transfer_items').insert(transferItems);
@@ -176,11 +185,21 @@ async function loadStateFromSupabase(){
 
   const productsOut = (products||[]).map(p=>({
     id:p.id, kod:p.kod, kategori:p.kategori, emri:p.emri||'', masa:p.masa||'',
-    njesia:p.njesia, minStok:p.min_stok, cmimiBlerje:p.cmimi_blerje||0, cmimiShitje:p.cmimi_shitje||0
+    njesia:p.njesia, minStok:p.min_stok, cmimiBlerje:p.cmimi_blerje||0, cmimiShitje:p.cmimi_shitje||0,
+    multiLot: !!p.multi_lot
   }));
 
+  // Mund të ketë disa rreshta për të njëjtin (magazina, product_id) — një për çdo Lot/Rrotull
+  // (produktet pa Lote kanë thjesht 1 rresht). Mblidhen për stokun total; ruhen veç e veç si stockLots.
   const stock = { madhe:{}, dyqan:{} };
-  (stockRows||[]).forEach(r=>{ stock[r.magazina] = stock[r.magazina]||{}; stock[r.magazina][r.product_id] = r.sasia; });
+  const stockLots = { madhe:{}, dyqan:{} };
+  (stockRows||[]).forEach(r=>{
+    stock[r.magazina] = stock[r.magazina]||{};
+    stock[r.magazina][r.product_id] = Math.round(((stock[r.magazina][r.product_id]||0) + r.sasia)*1000)/1000;
+    stockLots[r.magazina] = stockLots[r.magazina]||{};
+    stockLots[r.magazina][r.product_id] = stockLots[r.magazina][r.product_id] || [];
+    stockLots[r.magazina][r.product_id].push({ id: (crypto.randomUUID ? crypto.randomUUID().slice(0,8) : Math.random().toString(36).slice(2,10)), sasia: r.sasia });
+  });
 
   const purchasesOut = (purchases||[]).map(r=>({
     id:r.id, nr:r.nr, data:r.data, furnitorId:r.furnitor_id, magazina:r.magazina,
@@ -190,7 +209,7 @@ async function loadStateFromSupabase(){
 
   const transfersOut = (transfers||[]).map(r=>({
     id:r.id, nr:r.nr, data:r.data, nga:r.nga, drejtBy:r.drejt_by, status:r.status,
-    items:(transferItems||[]).filter(it=>it.transfer_id===r.id).map(it=>({productId:it.product_id, sasia:it.sasia}))
+    items:(transferItems||[]).filter(it=>it.transfer_id===r.id).map(it=>({productId:it.product_id, sasia:it.sasia, ...(it.lots?{lots:it.lots}:{})}))
   }));
 
   const salesOut = (sales||[]).map(r=>({
@@ -206,6 +225,7 @@ async function loadStateFromSupabase(){
     customers: (customers||[]).map(c=>({id:c.id, emri:c.emri, telefon:c.telefon, adresa:c.adresa})),
     users: (users||[]).map(u=>({id:u.id, emri:u.emri, roli:u.roli, telefon:u.telefon, pin:u.pin, sistem:u.sistem})),
     stock,
+    stockLots,
     purchases: purchasesOut,
     transfers: transfersOut,
     sales: salesOut,
